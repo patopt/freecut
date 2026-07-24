@@ -6,11 +6,12 @@ the original video (original audio dropped, translated voiceover in its place).
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
 from .. import config, db
-from . import audio_mix, download, transcribe, translate, tts
+from . import audio_mix, captions, download, transcribe, translate, tts
 
 
 def run_dub(dub_id: str) -> None:
@@ -88,6 +89,18 @@ def run_dub(dub_id: str) -> None:
         thumb_file = out_dir / f"{dub_id}.jpg"
         _mux(src["path"], audio_path, out_file)
 
+        # Optional burned-in captions in the translated language.
+        style = dub.get("caption_style") or ""
+        if style and style != "none":
+            try:
+                ass = captions.build_ass_from_segments(
+                    tr.segments, translations, 0.0, work / "captions.ass", preset=style)
+                if ass:
+                    _burn_captions(out_file, ass)
+                    db.append_dub_log(dub_id, f"Captions burned in ({style})")
+            except Exception as exc:  # noqa: BLE001
+                db.append_dub_log(dub_id, f"Captions skipped: {exc}")
+
         # Optional background music under the voiceover.
         music_id = dub.get("music_id")
         if music_id:
@@ -116,6 +129,24 @@ def run_dub(dub_id: str) -> None:
     except Exception as exc:  # noqa: BLE001
         db.append_dub_log(dub_id, f"ERROR: {exc}")
         db.update_dub(dub_id, status="error", stage="Failed", error=str(exc))
+
+
+def _burn_captions(video_path: Path, ass_path: Path) -> None:
+    """Burn an ASS subtitle file into the video, replacing it in place."""
+    esc = str(ass_path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    tmp = video_path.with_name(video_path.stem + ".cap.mp4")
+    cmd = [
+        "ffmpeg", "-y", "-nostats", "-loglevel", "error",
+        "-i", str(video_path),
+        "-vf", f"subtitles={esc}",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "copy", "-movflags", "+faststart", str(tmp),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError((proc.stderr or "").strip()[-400:])
+    shutil.move(str(tmp), str(video_path))
 
 
 def _mux(video_path: str, audio_path: Path, out_path: Path) -> None:

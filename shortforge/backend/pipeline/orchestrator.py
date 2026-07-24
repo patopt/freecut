@@ -85,7 +85,8 @@ def run_job(job_id: str) -> None:
             if want_captions:
                 words = tr.words_between(clip["start"], clip["end"])
                 ass_path = captions.build_ass(
-                    words, clip["start"], out_dir / f"short_{n:02d}.ass"
+                    words, clip["start"], out_dir / f"short_{n:02d}.ass",
+                    preset=params.get("caption_style", captions.DEFAULT_PRESET),
                 )
 
             out_file = out_dir / f"short_{n:02d}.mp4"

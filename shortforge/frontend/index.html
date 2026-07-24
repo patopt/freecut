@@ -43,6 +43,9 @@
             <label class="switch-row">
               <input type="checkbox" id="opt-captions" checked /> Captions
             </label>
+            <label>Caption style
+              <select id="opt-caption-style"></select>
+            </label>
             <label>Music
               <select id="opt-music"><option value="">— None —</option></select>
             </label>
@@ -175,6 +178,8 @@
               </label>
               <label id="yt-count-wrap" style="display:none">How many<input type="number" id="yt-count" value="30" min="1" /></label>
               <label>Privacy<select id="yt-privacy"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label>
+              <label>Captions<select id="yt-captions"><option value="">— None —</option></select></label>
+              <label>Music<select id="yt-music"><option value="">— Default —</option></select></label>
             </div>
             <button id="btn-save-auto" class="btn primary block">Save auto settings</button>
             <div id="yt-auto-msg" class="muted"></div>
@@ -227,6 +232,12 @@
       <label>Default music for translated shorts
         <select id="set-default-music"><option value="">— None —</option></select>
       </label>
+      <label>Default caption style (Clip)
+        <select id="set-default-caption"></select>
+      </label>
+      <label>Default captions for translated shorts (Copy)
+        <select id="set-default-dub-captions"><option value="">— None —</option></select>
+      </label>
 
       <hr />
       <div class="meta-label">YouTube / Google accounts</div>
@@ -266,6 +277,7 @@
       <label>Language<select id="lang-select"></select></label>
       <label>Send to my channel<select id="dest-select"><option value="">— None —</option></select></label>
       <label>Background music<select id="dub-music"><option value="">— None —</option></select></label>
+      <label>Burned-in captions<select id="dub-captions"><option value="">— None —</option></select></label>
       <button id="btn-confirm-lang" class="btn primary block">Start translation</button>
     </div>
   </div>

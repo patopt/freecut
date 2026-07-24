@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import auth, config, db, worker
 from .pipeline import autopublish as autopublish_mod
+from .pipeline import captions as captions_mod
 from .pipeline import channels as channels_mod
 from .pipeline import translate as translate_mod
 from .pipeline import youtube as youtube_mod
@@ -102,6 +103,8 @@ def get_settings(_: None = Depends(require_auth)):
         "tts_engine": db.effective("tts_engine"),
         "ngrok_authtoken_set": bool(db.effective("ngrok_authtoken")),
         "default_dub_music": db.effective("default_dub_music"),
+        "default_caption_style": db.effective("default_caption_style") or captions_mod.DEFAULT_PRESET,
+        "default_dub_captions": db.effective("default_dub_captions"),
         "google_client_id_set": bool(db.effective("google_client_id")),
         "google_client_secret_set": bool(db.effective("google_client_secret")),
     }
@@ -120,7 +123,8 @@ async def update_settings(request: Request, _: None = Depends(require_auth)):
         if val:
             db.set_setting(key, val)
     # These may be intentionally cleared (empty = none).
-    for key in ("default_dub_music", "public_base_url"):
+    for key in ("default_dub_music", "public_base_url", "default_caption_style",
+                "default_dub_captions"):
         if key in body:
             db.set_setting(key, str(body.get(key, "")).strip())
     new_pw = str(body.get("new_password", "")).strip()
@@ -145,6 +149,8 @@ async def create_job(request: Request, _: None = Depends(require_auth)):
         "max_len": max(10, min(180, float(body.get("max_len", 60)))),
         "music_id": str(body.get("music_id", "")).strip(),
         "music_gain": max(0.0, min(1.0, float(body.get("music_gain", 0.18)))),
+        "caption_style": str(body.get("caption_style", "")).strip()
+        or db.effective("default_caption_style") or captions_mod.DEFAULT_PRESET,
     }
     jid = db.create_job(url, "", params)
     return {"id": jid}
@@ -245,6 +251,11 @@ def languages(_: None = Depends(require_auth)):
     return {"languages": translate_mod.LANGUAGE_NAMES}
 
 
+@app.get("/api/caption-styles")
+def caption_styles(_: None = Depends(require_auth)):
+    return {"styles": captions_mod.list_presets(), "default": captions_mod.DEFAULT_PRESET}
+
+
 @app.post("/api/channels")
 async def add_channel(request: Request, _: None = Depends(require_auth)):
     body = await request.json()
@@ -314,7 +325,10 @@ async def create_dub(short_id: str, request: Request, _: None = Depends(require_
         else:
             raise HTTPException(status_code=400, detail="Unknown destination channel")
     music_id = str(body.get("music_id", "")).strip() or db.effective("default_dub_music") or ""
-    did = db.create_dub(short_id, lang, dest, music_id)
+    caption_style = str(body.get("caption_style", "")).strip()
+    if caption_style == "":
+        caption_style = db.effective("default_dub_captions") or ""
+    did = db.create_dub(short_id, lang, dest, music_id, caption_style)
     # Sending to a connected YouTube channel = also publish it (when rendered).
     if dest_is_youtube:
         import time as _t

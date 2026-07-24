@@ -79,13 +79,15 @@ def enqueue_channel(yt_channel: dict) -> int:
     cfg = yt_channel.get("auto_config", {}) or {}
     lang = cfg.get("target_lang", "fr")
     music_id = cfg.get("music_id", "") or db.effective("default_dub_music") or ""
+    caption_style = cfg.get("caption_style", "") or db.effective("default_dub_captions") or ""
     ytid = yt_channel["id"]
 
     new_dubs: list[str] = []
     for s in _candidate_shorts(cfg):
         if db.get_dub_for(s["id"], lang, ytid):
             continue  # already handled for this channel
-        did = db.create_dub(s["id"], lang, dest_channel_id=ytid, music_id=music_id)
+        did = db.create_dub(s["id"], lang, dest_channel_id=ytid, music_id=music_id,
+                            caption_style=caption_style)
         new_dubs.append(did)
 
     if not new_dubs:

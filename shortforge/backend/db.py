@@ -167,6 +167,7 @@ def init_db() -> None:
         _ensure_column(c, "dubs", "tr_title", "TEXT DEFAULT ''")
         _ensure_column(c, "dubs", "tr_description", "TEXT DEFAULT ''")
         _ensure_column(c, "dubs", "music_id", "TEXT DEFAULT ''")
+        _ensure_column(c, "dubs", "caption_style", "TEXT DEFAULT ''")
         c.commit()
 
 
@@ -527,15 +528,16 @@ def get_channel_short(short_id: str) -> Optional[dict]:
 
 # --- dubs -------------------------------------------------------------------
 
-def create_dub(short_id: str, lang: str, dest_channel_id: str = "", music_id: str = "") -> str:
+def create_dub(short_id: str, lang: str, dest_channel_id: str = "", music_id: str = "",
+               caption_style: str = "") -> str:
     did = uuid.uuid4().hex[:12]
     now = time.time()
     with _lock:
         c = _connect()
         c.execute(
             "INSERT INTO dubs(id, short_id, lang, status, dest_channel_id, "
-            "music_id, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)",
-            (did, short_id, lang, "queued", dest_channel_id, music_id, now, now),
+            "music_id, caption_style, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            (did, short_id, lang, "queued", dest_channel_id, music_id, caption_style, now, now),
         )
         c.commit()
     return did

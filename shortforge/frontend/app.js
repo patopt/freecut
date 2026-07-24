@@ -94,7 +94,8 @@ async function createJob() {
   const btn = $('btn-create'); btn.disabled = true; btn.textContent = 'Starting…';
   try {
     const body = { url, count: parseInt($('opt-count').value, 10), reframe: $('opt-reframe').value,
-      captions: $('opt-captions').checked, music_id: $('opt-music').value };
+      captions: $('opt-captions').checked, music_id: $('opt-music').value,
+      caption_style: $('opt-caption-style').value };
     const { id } = await api('/api/jobs', { method: 'POST', body: JSON.stringify(body) });
     $('job-url').value = ''; openDetail(id); loadJobs();
   } catch (e) { err.textContent = e.message; }
@@ -283,6 +284,8 @@ async function openYtChannel(id) {
       $('yt-sources').appendChild(row);
     }
   } catch (_) {}
+  await loadCaptionStyles();
+  await loadMusicOptions();
   if (!languagesCache) { try { languagesCache = (await api('/api/languages')).languages; } catch (_) { languagesCache = { fr: 'French' }; } }
   const ls = $('yt-lang'); ls.innerHTML = '';
   for (const [c, n] of Object.entries(languagesCache)) { const o = document.createElement('option'); o.value = c; o.textContent = `${n} (${c})`; ls.appendChild(o); }
@@ -308,6 +311,8 @@ async function reloadYtChannel() {
   if (cfg.privacy) $('yt-privacy').value = cfg.privacy;
   if (cfg.per_day) $('yt-perday').value = cfg.per_day;
   if (cfg.times) $('yt-times').value = (cfg.times || []).join(',');
+  if (cfg.caption_style !== undefined) $('yt-captions').value = cfg.caption_style || '';
+  if (cfg.music_id !== undefined) $('yt-music').value = cfg.music_id || '';
   for (const scid of (cfg.source_channel_ids || [])) { const cb = $(`src-${scid}`); if (cb) cb.checked = true; }
   toggleCadenceFields(); toggleSelectionFields();
   renderYtItems(d.items || []);
@@ -353,6 +358,8 @@ async function saveAuto() {
     selection: $('yt-selection').value,
     count: parseInt($('yt-count').value, 10) || 30,
     privacy: $('yt-privacy').value,
+    caption_style: $('yt-captions').value,
+    music_id: $('yt-music').value,
   };
   const body = { enabled: $('yt-auto-enabled').checked, config: cfg };
   const msg = $('yt-auto-msg'); msg.textContent = 'Saving…';
@@ -435,6 +442,7 @@ async function openLangModal(shortId) {
   }
   sel.value = 'fr';
   await loadMusicOptions();
+  await loadCaptionStyles();
   // Populate destination channels.
   const dest = $('dest-select'); dest.innerHTML = '<option value="">— None —</option>';
   try {
@@ -450,7 +458,8 @@ async function openLangModal(shortId) {
 
 async function confirmLang() {
   if (!pendingDubShortId) return;
-  const body = { lang: $('lang-select').value, dest_channel_id: $('dest-select').value, music_id: $('dub-music').value };
+  const body = { lang: $('lang-select').value, dest_channel_id: $('dest-select').value,
+    music_id: $('dub-music').value, caption_style: $('dub-captions').value || 'none' };
   try { await api(`/api/shorts-src/${pendingDubShortId}/dub`, { method: 'POST', body: JSON.stringify(body) }); }
   catch (e) { alert(e.message); }
   $('lang-modal').classList.add('hidden'); pendingDubShortId = null;
@@ -490,6 +499,38 @@ function renderDub(d) {
   meta.innerHTML = rows.map(([label, val]) =>
     `<div class="meta-block"><div class="meta-label">${label}</div><div class="meta-val">${escapeHtml(val)}</div></div>`).join('');
   if (d.status === 'done' && currentMyChannelId) reloadMyChannel();
+}
+
+// ===================== CAPTION STYLES ======================================
+
+let captionStyles = null;
+
+async function loadCaptionStyles() {
+  if (!captionStyles) {
+    try { const r = await api('/api/caption-styles'); captionStyles = r.styles; }
+    catch (_) { captionStyles = { karaoke: 'Karaoke' }; }
+  }
+  // Selectors that require a style (no "none" option).
+  for (const id of ['opt-caption-style', 'set-default-caption']) {
+    const sel = $(id); if (!sel) continue;
+    const prev = sel.value;
+    sel.innerHTML = '';
+    for (const [k, label] of Object.entries(captionStyles)) {
+      const o = document.createElement('option'); o.value = k; o.textContent = label; sel.appendChild(o);
+    }
+    if (prev) sel.value = prev;
+  }
+  // Selectors where captions are optional.
+  for (const id of ['dub-captions', 'set-default-dub-captions', 'yt-captions']) {
+    const sel = $(id); if (!sel) continue;
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— None —</option>';
+    for (const [k, label] of Object.entries(captionStyles)) {
+      const o = document.createElement('option'); o.value = k; o.textContent = label; sel.appendChild(o);
+    }
+    sel.value = prev;
+  }
+  return captionStyles;
 }
 
 // ===================== MUSIC + MANAGEMENT ==================================
@@ -585,7 +626,10 @@ async function openSettings() {
     $('set-gemini-key').value = ''; $('set-ngrok').value = ''; $('set-password').value = '';
     $('settings-msg').textContent = '';
     await renderMusicList();
+    await loadCaptionStyles();
     $('set-default-music').value = s.default_dub_music || '';
+    $('set-default-caption').value = s.default_caption_style || 'karaoke';
+    $('set-default-dub-captions').value = s.default_dub_captions || '';
     $('set-gclient').value = '';
     $('gclient-status').textContent = s.google_client_id_set ? 'Client ID set ✓' : 'Not set';
     $('gsecret-status').textContent = s.google_client_secret_set ? 'Secret set ✓' : 'Not set';
@@ -629,6 +673,8 @@ async function saveSettings() {
     whisper_model: $('set-whisper').value, tts_engine: $('set-tts').value,
     ngrok_authtoken: $('set-ngrok').value, new_password: $('set-password').value,
     default_dub_music: $('set-default-music').value,
+    default_caption_style: $('set-default-caption').value,
+    default_dub_captions: $('set-default-dub-captions').value,
     google_client_id: $('set-gclient').value, google_client_secret: $('set-gsecret').value };
   try {
     await api('/api/settings', { method: 'POST', body: JSON.stringify(body) });
@@ -734,6 +780,7 @@ $('btn-logout').addEventListener('click', async () => { await fetch('/api/logout
 
 loadJobs();
 loadMusicOptions();
+loadCaptionStyles();
 loadSystemStatus();
 setInterval(() => {
   if (!$('screen-clip').classList.contains('hidden') && !$('view-list').classList.contains('hidden')) loadJobs();

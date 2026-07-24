@@ -61,8 +61,12 @@ source.mp4 ──► faster-whisper ──► word-level transcript
 - **Auto vertical reframe** — samples frames, finds the dominant face with
   OpenCV, and centres a 1080×1920 crop on it (per clip). Falls back to a centre
   crop. *(This is static per-clip reframing, not full active-speaker tracking.)*
-- **Animated captions** — burned-in, uppercase, highlighted word-by-word in
-  sync with speech (ASS karaoke).
+- **Animated captions, 6 styles** — burned-in and synced to speech. Pick per
+  job, per dub, per auto-channel, or set a default in Settings:
+  *Karaoke* (highlight follows the spoken word), *Hormozi* (big bold, yellow
+  keyword), *Pop* (one word at a time with a scale-in), *Neon* / *Cyan*
+  (coloured karaoke), *Minimal* (clean subtitles). Translated shorts in Copy
+  mode can burn captions **in the target language** too.
 - **Background jobs** — a worker thread processes one job at a time; the
   dashboard shows live progress + a log via Server-Sent Events.
 
