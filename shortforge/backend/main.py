@@ -776,7 +776,14 @@ async def vnc_bridge(ws: WebSocket):
     if not auth.valid_session(ws.cookies.get(auth.COOKIE_NAME)):
         await ws.close(code=1008)
         return
-    await ws.accept(subprotocol="binary")
+    # Only echo a subprotocol the client actually offered — answering with one
+    # it did not request makes the browser abort the handshake (RFC 6455).
+    offered = [p.strip() for p in
+               ws.headers.get("sec-websocket-protocol", "").split(",") if p.strip()]
+    if "binary" in offered:
+        await ws.accept(subprotocol="binary")
+    else:
+        await ws.accept()
     try:
         reader, writer = await asyncio.open_connection("127.0.0.1", tiktok_session_mod.VNC_PORT)
     except Exception:  # noqa: BLE001
@@ -954,11 +961,11 @@ def service_command(_: None = Depends(require_auth)):
     return {"command": f"cd {root} && ./install-service.sh"}
 
 
-# noVNC client (from the distro package) for the in-dashboard remote browser.
-for _novnc in ("/usr/share/novnc", "/usr/share/webapps/novnc"):
-    if Path(_novnc).is_dir():
-        app.mount("/novnc", StaticFiles(directory=_novnc), name="novnc")
-        break
+# noVNC client for the in-dashboard remote browser. Resolved at startup from
+# the distro package or the copy setup.sh downloads into data/novnc.
+_novnc_dir = tiktok_session_mod.novnc_dir()
+if _novnc_dir:
+    app.mount("/novnc", StaticFiles(directory=_novnc_dir), name="novnc")
 
 # Static assets (css/js) — safe to serve without auth (no secrets).
 app.mount("/static", StaticFiles(directory=config.FRONTEND_DIR), name="static")

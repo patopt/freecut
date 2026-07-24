@@ -20,7 +20,9 @@ if command -v apt-get >/dev/null 2>&1; then
   # xvfb/x11vnc/novnc power the in-dashboard remote browser used to log into
   # TikTok on the VPS; espeak-ng is required by the Kokoro voice engine.
   $SUDO apt-get install -y ffmpeg git fonts-dejavu-core software-properties-common \
-    espeak-ng xvfb x11vnc novnc
+    espeak-ng xvfb x11vnc curl
+  # novnc isn't in every release's repos — don't let it fail the whole install.
+  $SUDO apt-get install -y novnc || warn "novnc package unavailable; will download it instead"
 else
   warn "apt-get not found. Make sure ffmpeg and Python 3.10-3.12 are installed."
 fi
@@ -95,6 +97,25 @@ else
 fi
 
 mkdir -p data
+
+# --- 5. noVNC web client ----------------------------------------------------
+# The dashboard serves this to show the remote browser. Use the distro package
+# when present, otherwise fetch a release into data/novnc.
+if [ -f /usr/share/novnc/vnc.html ] || [ -f /usr/share/novnc/vnc_lite.html ]; then
+  info "noVNC found at /usr/share/novnc"
+elif [ -f data/novnc/vnc.html ]; then
+  info "noVNC already downloaded in data/novnc"
+else
+  info "Downloading noVNC client..."
+  if curl -fsSL https://github.com/novnc/noVNC/archive/refs/tags/v1.5.0.tar.gz -o /tmp/novnc.tgz; then
+    rm -rf data/novnc && mkdir -p data/novnc
+    tar -xzf /tmp/novnc.tgz -C data/novnc --strip-components=1
+    rm -f /tmp/novnc.tgz
+    info "noVNC installed into data/novnc"
+  else
+    warn "Could not download noVNC — the in-dashboard remote browser won't display."
+  fi
+fi
 
 info "Setup complete."
 echo

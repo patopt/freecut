@@ -744,11 +744,24 @@ async function connectTikTokApi() {
 
 let remoteAccountId = null;
 
-function openRemoteModal() {
+async function openRemoteModal() {
   $('tt-remote-setup').classList.remove('hidden');
   $('tt-remote-live').classList.add('hidden');
   $('tt-remote-msg').textContent = '';
   $('tt-remote-modal').classList.remove('hidden');
+  // Tell the user up-front if the server is missing a piece.
+  try {
+    const st = await api('/api/tiktok/session/status');
+    const d = st.diagnostics || {};
+    const missing = [];
+    if (!d.xvfb) missing.push('Xvfb');
+    if (!d.x11vnc) missing.push('x11vnc');
+    if (!d.novnc_dir) missing.push('noVNC');
+    if (!d.chromium) missing.push('Chromium');
+    $('tt-remote-msg').textContent = missing.length
+      ? `⚠ Missing on the server: ${missing.join(', ')} — run ./setup.sh again on the VPS.`
+      : '';
+  } catch (_) {}
 }
 
 async function startRemoteBrowser() {
@@ -760,18 +773,23 @@ async function startRemoteBrowser() {
     const info = await api('/api/tiktok/session/start', {
       method: 'POST', body: JSON.stringify({ name }) });
     remoteAccountId = info.account_id;
-    // noVNC connects back through the dashboard's WebSocket bridge.
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    // noVNC connects back through the dashboard's authenticated WebSocket
+    // bridge; host/port/encrypt must match the page we're served from.
+    const secure = window.location.protocol === 'https:';
     const params = new URLSearchParams({
       autoconnect: '1', resize: 'remote', reconnect: '1',
-      path: 'api/vnc/ws', password: info.vnc_password,
+      host: window.location.hostname,
+      port: window.location.port || (secure ? '443' : '80'),
+      encrypt: secure ? '1' : '0',
+      path: 'api/vnc/ws',
+      password: info.vnc_password,
     });
-    $('tt-remote-frame').src = `/novnc/vnc.html?${params.toString()}`;
+    const page = info.novnc_page || 'vnc.html';
+    $('tt-remote-frame').src = `/novnc/${page}?${params.toString()}`;
     $('tt-vnc-info').textContent =
       `Host: ${window.location.hostname}   Port: ${info.vnc_port}   Password: ${info.vnc_password}\n` +
       `(the VNC port is bound to localhost — use an SSH tunnel: ` +
       `ssh -L ${info.vnc_port}:localhost:${info.vnc_port} user@your-vps)`;
-    void proto;
     $('tt-remote-setup').classList.add('hidden');
     $('tt-remote-live').classList.remove('hidden');
   } catch (e) { msg.textContent = e.message; }

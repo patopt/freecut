@@ -50,7 +50,59 @@ def _have(cmd: str) -> bool:
 
 
 def missing_deps() -> list[str]:
-    return [c for c in ("Xvfb", "x11vnc") if not _have(c)]
+    missing = [c for c in ("Xvfb", "x11vnc") if not _have(c)]
+    if novnc_dir() is None:
+        missing.append("novnc")
+    return missing
+
+
+# Where the noVNC web client may live. The bundled copy under data/ is used
+# when the distro package isn't available (setup.sh downloads it there).
+NOVNC_CANDIDATES = (
+    "/usr/share/novnc",
+    "/usr/share/webapps/novnc",
+    "/usr/local/share/novnc",
+)
+
+
+def novnc_dir() -> Optional[str]:
+    """Return a directory that actually contains the noVNC client page."""
+    candidates = list(NOVNC_CANDIDATES) + [str(config.DATA_DIR / "novnc")]
+    for d in candidates:
+        p = Path(d)
+        if (p / "vnc.html").is_file() or (p / "vnc_lite.html").is_file():
+            return str(p)
+    return None
+
+
+def novnc_page() -> str:
+    """Filename of the client page available in the resolved noVNC dir."""
+    d = novnc_dir()
+    if d and (Path(d) / "vnc.html").is_file():
+        return "vnc.html"
+    return "vnc_lite.html"
+
+
+def diagnostics() -> dict:
+    """Everything the UI needs to explain a failed connection."""
+    d = novnc_dir()
+    return {
+        "xvfb": _have("Xvfb"),
+        "x11vnc": _have("x11vnc"),
+        "novnc_dir": d or "",
+        "novnc_page": novnc_page() if d else "",
+        "chromium": _chromium_available(),
+        "display_running": bool(_procs.get("xvfb")),
+        "vnc_port_open": _port_open(VNC_PORT),
+    }
+
+
+def _chromium_available() -> bool:
+    try:
+        _chromium_binary()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _port_open(port: int) -> bool:
@@ -104,6 +156,8 @@ def status() -> dict:
         "missing": missing_deps(),
         "vnc_password": vnc_password(),
         "vnc_port": VNC_PORT,
+        "novnc_page": novnc_page(),
+        "diagnostics": diagnostics(),
     }
 
 
@@ -124,14 +178,21 @@ def start_session(account_id: str, url: str = "https://www.tiktok.com/login") ->
 
     # 2. VNC server on that display, localhost only (the dashboard bridges it)
     pw_file = _write_vnc_passfile()
+    # NOTE: never pass -nopw together with -rfbauth; they contradict each other
+    # and x11vnc then refuses the password noVNC sends.
     _spawn("x11vnc", [
         "x11vnc", "-display", DISPLAY, "-rfbport", str(VNC_PORT),
         "-rfbauth", str(pw_file), "-localhost", "-forever", "-shared",
-        "-nopw", "-noxdamage", "-repeat",
+        "-noxdamage", "-repeat",
     ])
-    deadline = time.time() + 10
+    deadline = time.time() + 12
     while time.time() < deadline and not _port_open(VNC_PORT):
         time.sleep(0.3)
+    if not _port_open(VNC_PORT):
+        stop_session()
+        raise RuntimeError(
+            "x11vnc did not start (port 5901 never opened). Check that Xvfb and "
+            "x11vnc are installed and that no other VNC server uses that port.")
 
     # 3. Headful Chromium with the account's persistent profile
     _spawn("chromium", _chromium_cmd(account_id, url), env={"DISPLAY": DISPLAY})
