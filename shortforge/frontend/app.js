@@ -373,6 +373,7 @@ async function openSettings() {
     const s = await api('/api/settings');
     $('set-gemini-model').value = s.gemini_model || '';
     $('set-whisper').value = s.whisper_model || 'small';
+    $('set-tts').value = s.tts_engine || 'kokoro';
     $('gemini-status').textContent = s.gemini_api_key_set ? 'Key configured ✓' : 'No key set';
     $('ngrok-status').textContent = s.ngrok_authtoken_set ? 'Token configured ✓' : 'No token set';
     $('set-gemini-key').value = ''; $('set-ngrok').value = ''; $('set-password').value = '';
@@ -382,7 +383,8 @@ async function openSettings() {
 }
 async function saveSettings() {
   const body = { gemini_api_key: $('set-gemini-key').value, gemini_model: $('set-gemini-model').value,
-    whisper_model: $('set-whisper').value, ngrok_authtoken: $('set-ngrok').value, new_password: $('set-password').value };
+    whisper_model: $('set-whisper').value, tts_engine: $('set-tts').value,
+    ngrok_authtoken: $('set-ngrok').value, new_password: $('set-password').value };
   try {
     await api('/api/settings', { method: 'POST', body: JSON.stringify(body) });
     $('settings-msg').textContent = 'Saved ✓';

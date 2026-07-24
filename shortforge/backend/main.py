@@ -95,6 +95,7 @@ def get_settings(_: None = Depends(require_auth)):
         "gemini_api_key_set": bool(db.effective("gemini_api_key")),
         "gemini_model": db.effective("gemini_model"),
         "whisper_model": db.effective("whisper_model"),
+        "tts_engine": db.effective("tts_engine"),
         "ngrok_authtoken_set": bool(db.effective("ngrok_authtoken")),
     }
 
@@ -107,7 +108,7 @@ async def update_settings(request: Request, _: None = Depends(require_auth)):
         val = str(body.get(key, "")).strip()
         if val:
             db.set_setting(key, val)
-    for key in ("gemini_model", "whisper_model"):
+    for key in ("gemini_model", "whisper_model", "tts_engine"):
         val = str(body.get(key, "")).strip()
         if val:
             db.set_setting(key, val)

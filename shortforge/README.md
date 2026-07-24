@@ -27,7 +27,8 @@ The dashboard has two tabs:
 - **🎙️ Copy** — channel dubbing: add a YouTube **channel**, ShortForge lists all
   its shorts. Tap any short → **Translate** → pick a language → it downloads the
   original, transcribes it, translates each segment with Gemini, and generates a
-  **time-aligned voiceover** (edge-tts) that replaces the original narration —
+  **time-aligned voiceover** (Kokoro-82M, realistic & offline; edge-tts
+  fallback) that replaces the original narration —
   each translated segment starts at the same timestamp as the original, sped up
   to fit its slot so the dub stays in sync with the picture. Finished dubs play
   and download right from the short. A **⟳ refresh** button re-scans the channel
@@ -170,5 +171,5 @@ Service and copyright law. You are responsible for how you use this tool.
 
 ## Tech
 
-FastAPI · SQLite · yt-dlp · faster-whisper · google-genai · edge-tts · OpenCV ·
-ffmpeg · vanilla-JS mobile dashboard.
+FastAPI · SQLite · yt-dlp · faster-whisper · google-genai · Kokoro-82M (ONNX) ·
+edge-tts · OpenCV · ffmpeg · vanilla-JS mobile dashboard.

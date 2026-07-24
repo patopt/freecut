@@ -37,6 +37,7 @@ ENV_DEFAULTS = {
     "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-2.5-pro"),
     "whisper_model": os.environ.get("WHISPER_MODEL", "small"),
     "ngrok_authtoken": os.environ.get("NGROK_AUTHTOKEN", ""),
+    "tts_engine": os.environ.get("TTS_ENGINE", "kokoro"),
 }
 
 

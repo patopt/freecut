@@ -73,6 +73,7 @@ def run_dub(dub_id: str) -> None:
         audio_path = tts.build_dub_track(
             tr.segments, translations, lang, tr.duration or src["duration"],
             work, work / "dub_audio.m4a",
+            log=lambda m: db.append_dub_log(dub_id, m),
         )
 
         # 5. Mux over the original video --------------------------------------
