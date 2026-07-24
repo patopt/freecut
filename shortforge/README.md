@@ -132,6 +132,17 @@ files too.
 - **First run downloads Whisper weights** (cached afterward).
 - Long videos take a while on CPU — mostly transcription and encoding.
 
+## Troubleshooting
+
+**YouTube download fails ("not available on this app" / "sign in to confirm").**
+YouTube blocks many downloads from datacenter/VPS IPs. Two fixes:
+
+1. Make sure yt-dlp is current: `pip install -U yt-dlp` (in the venv).
+2. Provide cookies from a logged-in account. Export your YouTube cookies as a
+   Netscape `cookies.txt` (e.g. the "Get cookies.txt LOCALLY" browser
+   extension), then place the file at `data/cookies.txt` — ShortForge picks it
+   up automatically. This is the reliable fix for login/bot-check gating.
+
 ## ⚖️ Legal
 
 Only download and repurpose videos you **own** or are licensed/authorised to

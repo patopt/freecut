@@ -6,7 +6,9 @@ itsdangerous==2.2.0
 pydantic==2.10.4
 
 # Pipeline
-yt-dlp==2025.6.30
+# Kept unpinned on purpose: YouTube breaks older yt-dlp releases constantly,
+# so always install the latest. Run `pip install -U yt-dlp` if downloads fail.
+yt-dlp
 faster-whisper==1.1.0
 google-genai==0.8.0
 opencv-python-headless==4.11.0.86

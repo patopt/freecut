@@ -45,7 +45,19 @@ def download_source(url: str, job_id: str, on_progress: ProgressCb) -> dict:
         "progress_hooks": [hook],
         "retries": 3,
         "concurrent_fragment_downloads": 4,
+        # YouTube frequently rejects a single player client ("not available on
+        # this app"). Try several so one succeeds.
+        "extractor_args": {
+            "youtube": {"player_client": ["default", "tv", "web_safari", "android", "ios"]}
+        },
     }
+
+    # Datacenter/VPS IPs are often gated behind a login. If the user drops a
+    # Netscape-format cookies.txt (exported from a logged-in browser) into the
+    # data dir, use it — this is the reliable fix for "sign in to confirm".
+    cookies = config.DATA_DIR / "cookies.txt"
+    if cookies.exists():
+        ydl_opts["cookiefile"] = str(cookies)
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
