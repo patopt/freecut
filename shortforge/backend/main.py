@@ -658,6 +658,28 @@ async def youtube_publish_now(channel_id: str, request: Request, _: None = Depen
 
 # --- system: 24/7 service command -------------------------------------------
 
+@app.get("/api/system/status")
+def system_status(_: None = Depends(require_auth)):
+    return {"paused": db.is_paused()}
+
+
+@app.post("/api/system/stop-all")
+def stop_all(_: None = Depends(require_auth)):
+    db.set_paused(True)
+    jobs = db.cancel_queued_jobs()
+    dubs = db.cancel_queued_dubs()
+    pubs = db.cancel_pending_publishes()
+    autos = db.disable_all_auto()
+    return {"paused": True, "canceled_jobs": jobs, "canceled_dubs": dubs,
+            "canceled_publishes": pubs, "auto_disabled": autos}
+
+
+@app.post("/api/system/resume")
+def resume(_: None = Depends(require_auth)):
+    db.set_paused(False)
+    return {"paused": False}
+
+
 @app.get("/api/system/service")
 def service_command(_: None = Depends(require_auth)):
     """Return the one-time command that installs the 24/7 systemd service."""

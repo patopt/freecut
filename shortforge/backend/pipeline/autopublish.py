@@ -159,6 +159,9 @@ def _loop() -> None:
     while not _stop.is_set():
         now = time.time()
         try:
+            if db.is_paused():
+                _stop.wait(60.0)
+                continue
             publish_due()
             if now - _last_enqueue >= ENQUEUE_EVERY:
                 refresh = now - _last_source_refresh >= SOURCE_REFRESH_EVERY

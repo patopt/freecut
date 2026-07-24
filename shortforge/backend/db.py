@@ -277,6 +277,46 @@ def list_jobs(limit: int = 100) -> list[dict]:
     return [_job_to_dict(r) for r in rows]
 
 
+def is_paused() -> bool:
+    return get_setting("paused") == "1"
+
+
+def set_paused(paused: bool) -> None:
+    set_setting("paused", "1" if paused else "0")
+
+
+def cancel_queued_jobs() -> int:
+    with _lock:
+        c = _connect()
+        cur = c.execute("UPDATE jobs SET status='canceled', stage='Canceled' WHERE status='queued'")
+        c.commit()
+        return cur.rowcount
+
+
+def cancel_queued_dubs() -> int:
+    with _lock:
+        c = _connect()
+        cur = c.execute("UPDATE dubs SET status='canceled', stage='Canceled' WHERE status='queued'")
+        c.commit()
+        return cur.rowcount
+
+
+def cancel_pending_publishes() -> int:
+    with _lock:
+        c = _connect()
+        cur = c.execute("UPDATE publish_queue SET status='canceled' WHERE status='pending'")
+        c.commit()
+        return cur.rowcount
+
+
+def disable_all_auto() -> int:
+    with _lock:
+        c = _connect()
+        cur = c.execute("UPDATE youtube_channels SET auto_enabled=0 WHERE auto_enabled=1")
+        c.commit()
+        return cur.rowcount
+
+
 def next_queued_job() -> Optional[dict]:
     with _lock:
         row = _connect().execute(

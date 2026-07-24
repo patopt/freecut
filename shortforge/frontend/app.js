@@ -28,6 +28,7 @@ const STAGE_LABEL = {
   queued: 'Queued', downloading: 'Downloading', transcribing: 'Transcribing',
   analyzing: 'Analyzing', translating: 'Translating', dubbing: 'Voicing',
   rendering: 'Rendering', done: 'Done', error: 'Error', fetching: 'Fetching', ready: 'Ready',
+  canceled: 'Canceled',
 };
 
 function badgeClass(status) {
@@ -636,6 +637,37 @@ async function saveSettings() {
   } catch (e) { $('settings-msg').textContent = e.message; }
 }
 
+// ===================== STOP / RESUME ALL QUEUES ============================
+
+let systemPaused = false;
+
+function renderStopButton() {
+  const btn = $('btn-stop');
+  if (systemPaused) {
+    btn.textContent = '▶ Resume'; btn.classList.remove('danger'); btn.classList.add('primary');
+  } else {
+    btn.textContent = '⏹ Stop all'; btn.classList.add('danger'); btn.classList.remove('primary');
+  }
+}
+
+async function loadSystemStatus() {
+  try { systemPaused = (await api('/api/system/status')).paused; renderStopButton(); } catch (_) {}
+}
+
+async function toggleStop() {
+  if (!systemPaused) {
+    if (!confirm('Stop everything? This cancels all queued clips, dubs and pending uploads, and turns off Auto on every channel. The item currently rendering finishes.')) return;
+    try {
+      const r = await api('/api/system/stop-all', { method: 'POST' });
+      systemPaused = true; renderStopButton();
+      alert(`Stopped. Canceled: ${r.canceled_jobs} clips, ${r.canceled_dubs} dubs, ${r.canceled_publishes} uploads. Auto disabled on ${r.auto_disabled} channel(s).`);
+      loadJobs();
+    } catch (e) { alert(e.message); }
+  } else {
+    try { await api('/api/system/resume', { method: 'POST' }); systemPaused = false; renderStopButton(); } catch (e) { alert(e.message); }
+  }
+}
+
 // ===================== wire up =============================================
 
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => switchMode(t.dataset.mode)));
@@ -663,6 +695,7 @@ $('btn-save-auto').addEventListener('click', saveAuto);
 $('yt-cadence').addEventListener('change', toggleCadenceFields);
 $('yt-selection').addEventListener('change', toggleSelectionFields);
 $('btn-connect-google').addEventListener('click', connectGoogle);
+$('btn-stop').addEventListener('click', toggleStop);
 
 $('btn-close-lang').addEventListener('click', () => $('lang-modal').classList.add('hidden'));
 $('btn-confirm-lang').addEventListener('click', confirmLang);
@@ -690,6 +723,7 @@ $('btn-logout').addEventListener('click', async () => { await fetch('/api/logout
 
 loadJobs();
 loadMusicOptions();
+loadSystemStatus();
 setInterval(() => {
   if (!$('screen-clip').classList.contains('hidden') && !$('view-list').classList.contains('hidden')) loadJobs();
 }, 5000);

@@ -29,6 +29,9 @@ def recover_interrupted() -> None:
 
 def _loop() -> None:
     while not _stop.is_set():
+        if db.is_paused():
+            _stop.wait(2.0)
+            continue
         job = db.next_queued_job()
         if job is not None:
             orchestrator.run_job(job["id"])
