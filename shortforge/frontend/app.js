@@ -350,9 +350,16 @@ async function saveAuto() {
   };
   const body = { enabled: $('yt-auto-enabled').checked, config: cfg };
   const msg = $('yt-auto-msg'); msg.textContent = 'Saving…';
+  if (body.enabled && !cfg.source_channel_ids.length) {
+    msg.textContent = 'Tick at least one source channel first.'; return;
+  }
   try {
-    await api(`/api/youtube/channels/${currentYtChannelId}/auto`, { method: 'POST', body: JSON.stringify(body) });
-    msg.textContent = $('yt-auto-enabled').checked ? 'Auto mode active ✓ — translating & scheduling…' : 'Saved ✓';
+    const r = await api(`/api/youtube/channels/${currentYtChannelId}/auto`, { method: 'POST', body: JSON.stringify(body) });
+    if (body.enabled) {
+      msg.textContent = r.started > 0
+        ? `Auto mode active ✓ — ${r.started} videos queued for translation & publishing.`
+        : 'Auto mode active ✓ — no new videos to queue (already handled, or sources have no shorts yet).';
+    } else { msg.textContent = 'Saved ✓'; }
     reloadYtChannel();
   } catch (e) { msg.textContent = e.message; }
 }
@@ -426,7 +433,11 @@ async function openLangModal(shortId) {
   const dest = $('dest-select'); dest.innerHTML = '<option value="">— None —</option>';
   try {
     const mine = (await api('/api/my-channels')).channels;
-    for (const ch of mine) { const o = document.createElement('option'); o.value = ch.id; o.textContent = ch.name; dest.appendChild(o); }
+    for (const ch of mine) {
+      const o = document.createElement('option'); o.value = ch.id;
+      o.textContent = ch.kind === 'youtube' ? `▶ ${ch.name} (YouTube — publishes)` : ch.name;
+      dest.appendChild(o);
+    }
   } catch (_) {}
   $('lang-modal').classList.remove('hidden');
 }

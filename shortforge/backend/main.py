@@ -305,10 +305,20 @@ async def create_dub(short_id: str, request: Request, _: None = Depends(require_
     if lang not in translate_mod.LANGUAGE_NAMES:
         raise HTTPException(status_code=400, detail="Unsupported language")
     dest = str(body.get("dest_channel_id", "")).strip()
-    if dest and not db.get_my_channel(dest):
-        raise HTTPException(status_code=400, detail="Unknown destination channel")
+    dest_is_youtube = False
+    if dest:
+        if db.get_my_channel(dest):
+            dest_is_youtube = False
+        elif db.get_youtube_channel(dest):
+            dest_is_youtube = True
+        else:
+            raise HTTPException(status_code=400, detail="Unknown destination channel")
     music_id = str(body.get("music_id", "")).strip() or db.effective("default_dub_music") or ""
     did = db.create_dub(short_id, lang, dest, music_id)
+    # Sending to a connected YouTube channel = also publish it (when rendered).
+    if dest_is_youtube:
+        import time as _t
+        db.enqueue_publish(did, dest, _t.time())
     return {"id": did}
 
 
@@ -625,13 +635,11 @@ async def youtube_set_auto(channel_id: str, request: Request, _: None = Depends(
     cfg = body.get("config", {}) or {}
     enabled = 1 if body.get("enabled") else 0
     db.update_youtube_channel(channel_id, auto_enabled=enabled, auto_config=cfg)
-    # Kick an immediate enqueue so it starts right away.
+    # Enqueue synchronously so we can report how many tasks started.
+    started = 0
     if enabled:
-        import threading
-        threading.Thread(
-            target=lambda: autopublish_mod.enqueue_channel(db.get_youtube_channel(channel_id)),
-            daemon=True).start()
-    return {"ok": True}
+        started = autopublish_mod.enqueue_channel(db.get_youtube_channel(channel_id))
+    return {"ok": True, "started": started}
 
 
 @app.post("/api/youtube/channels/{channel_id}/publish")
