@@ -758,16 +758,29 @@ async def tiktok_session_start(request: Request, _: None = Depends(require_auth)
             f"browser-{_uuid.uuid4().hex[:10]}", name, "", "{}")
         db.update_tiktok_account(account_id, mode="browser")
     try:
-        info = tiktok_session_mod.start_session(account_id)
+        info = await asyncio.to_thread(tiktok_session_mod.start_session, account_id)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc))
     return {**info, "account_id": account_id}
 
 
 @app.post("/api/tiktok/session/stop")
-def tiktok_session_stop(_: None = Depends(require_auth)):
-    tiktok_session_mod.stop_session()
-    return {"ok": True}
+async def tiktok_session_stop(request: Request, _: None = Depends(require_auth)):
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        pass
+    save = bool(body.get("save", True))
+    # stop_session blocks while the profile is flushed; run it off the loop so
+    # the dashboard never freezes waiting for the browser to close.
+    result = await asyncio.to_thread(tiktok_session_mod.stop_session, save)
+    if save and result.get("logged_in"):
+        db.log_activity(
+            "tiktok", f"TikTok account connected: {result.get('username') or 'account'}",
+            f"{result.get('cookie_count', 0)} cookies stored", "success",
+            "tiktok", result.get("account_id", ""))
+    return {"ok": True, "result": result}
 
 
 @app.websocket("/api/vnc/ws")

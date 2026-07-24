@@ -743,6 +743,7 @@ async function connectTikTokApi() {
 // --- remote browser session -------------------------------------------------
 
 let remoteAccountId = null;
+let remoteLogTimer = null;
 
 async function openRemoteModal() {
   $('tt-remote-setup').classList.remove('hidden');
@@ -792,15 +793,53 @@ async function startRemoteBrowser() {
       `ssh -L ${info.vnc_port}:localhost:${info.vnc_port} user@your-vps)`;
     $('tt-remote-setup').classList.add('hidden');
     $('tt-remote-live').classList.remove('hidden');
+    $('tt-remote-log').textContent = '';
+    stopRemoteLogPoll();
+    pollRemoteLogs();
+    remoteLogTimer = setInterval(pollRemoteLogs, 2000);
   } catch (e) { msg.textContent = e.message; }
 }
 
+function stopRemoteLogPoll() {
+  if (remoteLogTimer) { clearInterval(remoteLogTimer); remoteLogTimer = null; }
+}
+
+async function pollRemoteLogs() {
+  let st;
+  try { st = await api('/api/tiktok/session/status'); } catch (_) { return; }
+  const s = st.session || {};
+  const lines = (s.logs || []).map((l) => {
+    const t = new Date(l.t * 1000).toLocaleTimeString();
+    const mark = l.level === 'success' ? '✓' : (l.level === 'error' ? '✕' : (l.level === 'warn' ? '!' : '·'));
+    return `[${t}] ${mark} ${l.message}`;
+  });
+  $('tt-remote-log').textContent = lines.join('\n');
+  $('tt-remote-log').scrollTop = $('tt-remote-log').scrollHeight;
+  $('tt-remote-hint').textContent = s.logged_in
+    ? `Logged in${s.username ? ' as ' + s.username : ''} — press Done to save the session.`
+    : 'Log into TikTok in the window above, then press Done.';
+  $('btn-remote-done').classList.toggle('primary', !!s.logged_in);
+}
+
 async function stopRemoteBrowser(done) {
-  try { await api('/api/tiktok/session/stop', { method: 'POST' }); } catch (_) {}
-  $('tt-remote-frame').src = '';
+  // Stop noVNC first so it can't keep reconnecting while the browser closes.
+  stopRemoteLogPoll();
+  $('tt-remote-frame').src = 'about:blank';
+  const doneBtn = $('btn-remote-done');
+  doneBtn.disabled = true;
+  $('tt-remote-hint').textContent = done ? 'Saving session…' : 'Closing…';
+  let result = {};
+  try {
+    const r = await api('/api/tiktok/session/stop', {
+      method: 'POST', body: JSON.stringify({ save: !!done }) });
+    result = r.result || {};
+  } catch (_) {}
+  doneBtn.disabled = false;
   $('tt-remote-modal').classList.add('hidden');
   if (done) {
-    alert('Session saved ✓ — this account will publish using that logged-in browser.');
+    $('tt-remote-msg').textContent = result.logged_in
+      ? `Connected${result.username ? ' as ' + result.username : ''} — ${result.cookie_count || 0} cookies saved.`
+      : 'Session closed, but no TikTok login was detected.';
   }
   remoteAccountId = null;
   renderTtAccounts();

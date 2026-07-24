@@ -1,24 +1,26 @@
 """Remote browser session on the VPS, viewable from the dashboard.
 
-Runs a real (headful) Chromium inside a virtual X display, exposes it over VNC,
-and keeps a **persistent profile per TikTok account**. You log into TikTok once
-through the dashboard, exactly as on a normal PC; the profile (cookies,
-localStorage, device fingerprint) is reused for every later upload, so TikTok
-sees one consistent browser.
+A real (headful) Chromium runs inside a virtual X display and is exposed over
+VNC, so you log into TikTok from the dashboard exactly as on a PC. The browser
+is driven through Playwright, which lets us watch the session live: detect the
+login, capture the cookies, and persist a **dedicated profile per account** that
+every later upload reuses.
 
-Stack: Xvfb (virtual display) -> x11vnc (bound to localhost) -> the app's
-WebSocket bridge -> noVNC in the dashboard. Nothing is exposed publicly except
-through the password-protected dashboard.
+Stack: Xvfb (virtual display) -> x11vnc (localhost only) -> the app's
+authenticated WebSocket bridge -> noVNC in the dashboard.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import queue
 import secrets
 import shutil
 import signal
 import socket
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -27,11 +29,29 @@ from .. import config, db
 
 DISPLAY = ":99"
 VNC_PORT = 5901
-SCREEN = "1280x900x24"
+SCREEN = "1440x900x24"
+LOGIN_URL = "https://www.tiktok.com/login"
+
+# Chromium env that silences the "Google API keys are missing" console warning.
+# These are Chromium's own Safe-Browsing/Sync keys and are unrelated to Gemini.
+CHROMIUM_ENV = {
+    "GOOGLE_API_KEY": "no",
+    "GOOGLE_DEFAULT_CLIENT_ID": "no",
+    "GOOGLE_DEFAULT_CLIENT_SECRET": "no",
+}
+
+NOVNC_CANDIDATES = (
+    "/usr/share/novnc",
+    "/usr/share/webapps/novnc",
+    "/usr/local/share/novnc",
+)
 
 _procs: dict[str, subprocess.Popen] = {}
-_session: dict = {"account_id": None, "started_at": 0.0}
+_runner: Optional["SessionRunner"] = None
+_lock = threading.RLock()
 
+
+# --- paths / deps -----------------------------------------------------------
 
 def profiles_dir() -> Path:
     d = config.DATA_DIR / "tiktok_profiles"
@@ -45,30 +65,17 @@ def profile_path(account_id: str) -> Path:
     return p
 
 
+def has_profile(account_id: str) -> bool:
+    p = profiles_dir() / account_id
+    return p.exists() and any(p.iterdir())
+
+
 def _have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
-def missing_deps() -> list[str]:
-    missing = [c for c in ("Xvfb", "x11vnc") if not _have(c)]
-    if novnc_dir() is None:
-        missing.append("novnc")
-    return missing
-
-
-# Where the noVNC web client may live. The bundled copy under data/ is used
-# when the distro package isn't available (setup.sh downloads it there).
-NOVNC_CANDIDATES = (
-    "/usr/share/novnc",
-    "/usr/share/webapps/novnc",
-    "/usr/local/share/novnc",
-)
-
-
 def novnc_dir() -> Optional[str]:
-    """Return a directory that actually contains the noVNC client page."""
-    candidates = list(NOVNC_CANDIDATES) + [str(config.DATA_DIR / "novnc")]
-    for d in candidates:
+    for d in list(NOVNC_CANDIDATES) + [str(config.DATA_DIR / "novnc")]:
         p = Path(d)
         if (p / "vnc.html").is_file() or (p / "vnc_lite.html").is_file():
             return str(p)
@@ -76,33 +83,27 @@ def novnc_dir() -> Optional[str]:
 
 
 def novnc_page() -> str:
-    """Filename of the client page available in the resolved noVNC dir."""
     d = novnc_dir()
     if d and (Path(d) / "vnc.html").is_file():
         return "vnc.html"
     return "vnc_lite.html"
 
 
-def diagnostics() -> dict:
-    """Everything the UI needs to explain a failed connection."""
-    d = novnc_dir()
-    return {
-        "xvfb": _have("Xvfb"),
-        "x11vnc": _have("x11vnc"),
-        "novnc_dir": d or "",
-        "novnc_page": novnc_page() if d else "",
-        "chromium": _chromium_available(),
-        "display_running": bool(_procs.get("xvfb")),
-        "vnc_port_open": _port_open(VNC_PORT),
-    }
-
-
 def _chromium_available() -> bool:
     try:
-        _chromium_binary()
+        from playwright.sync_api import sync_playwright  # noqa: F401
         return True
     except Exception:  # noqa: BLE001
         return False
+
+
+def missing_deps() -> list[str]:
+    missing = [c for c in ("Xvfb", "x11vnc") if not _have(c)]
+    if novnc_dir() is None:
+        missing.append("novnc")
+    if not _chromium_available():
+        missing.append("playwright")
+    return missing
 
 
 def _port_open(port: int) -> bool:
@@ -111,8 +112,19 @@ def _port_open(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def diagnostics() -> dict:
+    return {
+        "xvfb": _have("Xvfb"),
+        "x11vnc": _have("x11vnc"),
+        "novnc_dir": novnc_dir() or "",
+        "chromium": _chromium_available(),
+        "vnc_port_open": _port_open(VNC_PORT),
+    }
+
+
+# --- VNC password -----------------------------------------------------------
+
 def vnc_password() -> str:
-    """Stable per-install VNC password (also usable from a desktop VNC app)."""
     pw = db.get_setting("vnc_password")
     if not pw:
         pw = secrets.token_urlsafe(9)[:12]
@@ -127,6 +139,8 @@ def _write_vnc_passfile() -> Path:
     return pw_file
 
 
+# --- process helpers --------------------------------------------------------
+
 def _kill(name: str) -> None:
     proc = _procs.pop(name, None)
     if not proc:
@@ -136,6 +150,14 @@ def _kill(name: str) -> None:
     except Exception:  # noqa: BLE001
         try:
             proc.terminate()
+        except Exception:  # noqa: BLE001
+            pass
+    # Reap so we don't leave zombies; never block the request for long.
+    try:
+        proc.wait(timeout=3)
+    except Exception:  # noqa: BLE001
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except Exception:  # noqa: BLE001
             pass
 
@@ -148,106 +170,240 @@ def _spawn(name: str, cmd: list[str], env: dict | None = None) -> subprocess.Pop
     return proc
 
 
+# --- the Playwright-driven session -----------------------------------------
+
+class SessionRunner(threading.Thread):
+    """Owns the headful browser for one account and reports what it sees."""
+
+    def __init__(self, account_id: str) -> None:
+        super().__init__(daemon=True, name=f"tt-session-{account_id}")
+        self.account_id = account_id
+        self.logs: list[dict] = []
+        self.logged_in = False
+        self.username = ""
+        self.cookie_count = 0
+        self.ready = threading.Event()
+        self.finished = threading.Event()
+        self.error = ""
+        self._stop = threading.Event()
+        self._commands: queue.Queue[str] = queue.Queue()
+
+    # -- logging
+    def log(self, message: str, level: str = "info") -> None:
+        entry = {"t": time.time(), "level": level, "message": message}
+        self.logs.append(entry)
+        del self.logs[:-200]
+
+    # -- lifecycle
+    def request_stop(self, save: bool = True) -> None:
+        self._commands.put("save" if save else "discard")
+        self._stop.set()
+
+    def run(self) -> None:  # noqa: C901 - linear browser lifecycle
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception as exc:  # noqa: BLE001
+            self.error = f"Playwright unavailable: {exc}"
+            self.log(self.error, "error")
+            self.ready.set()
+            self.finished.set()
+            return
+
+        profile = profile_path(self.account_id)
+        self.log(f"Opening browser profile {profile.name}")
+        try:
+            with sync_playwright() as pw:
+                ctx = pw.chromium.launch_persistent_context(
+                    str(profile),
+                    headless=False,
+                    env={**os.environ, **CHROMIUM_ENV, "DISPLAY": DISPLAY},
+                    args=[
+                        # --test-type hides Chromium's "unsupported command line
+                        # flag --no-sandbox" infobar; --no-sandbox is required
+                        # because the service usually runs as root.
+                        "--test-type",
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-blink-features=AutomationControlled",
+                        "--start-maximized",
+                        "--window-position=0,0",
+                        "--window-size=1440,900",
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                    ],
+                    viewport=None,
+                    locale="en-US",
+                )
+                page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                self.log("Browser ready — opening TikTok login")
+                try:
+                    page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+                except Exception as exc:  # noqa: BLE001
+                    self.log(f"Could not open TikTok ({exc}); you can navigate manually", "warn")
+                self.ready.set()
+                self.log("Waiting for you to log in…")
+
+                # Watch the session until the user presses Done / Stop.
+                while not self._stop.is_set():
+                    try:
+                        cookies = ctx.cookies()
+                    except Exception:  # noqa: BLE001
+                        cookies = []
+                    tt = [c for c in cookies if "tiktok" in (c.get("domain") or "")]
+                    session_ok = any(c.get("name") == "sessionid" and c.get("value")
+                                     for c in tt)
+                    if session_ok and not self.logged_in:
+                        self.logged_in = True
+                        self.cookie_count = len(tt)
+                        self.log(f"Login detected — {len(tt)} TikTok cookies present", "success")
+                        self._detect_username(page)
+                    elif not session_ok and self.logged_in:
+                        self.logged_in = False
+                        self.log("Session cookie disappeared (logged out?)", "warn")
+                    self._stop.wait(2.0)
+
+                action = "save"
+                try:
+                    action = self._commands.get_nowait()
+                except queue.Empty:
+                    pass
+
+                if action == "save":
+                    self.log("Saving session…")
+                    try:
+                        cookies = [c for c in ctx.cookies()
+                                   if "tiktok" in (c.get("domain") or "")]
+                        self.cookie_count = len(cookies)
+                        backup = config.DATA_DIR / "tiktok_cookies"
+                        backup.mkdir(parents=True, exist_ok=True)
+                        ctx.storage_state(path=str(backup / f"{self.account_id}.json"))
+                        self.log(f"Cookies captured and stored ({len(cookies)})", "success")
+                    except Exception as exc:  # noqa: BLE001
+                        self.log(f"Could not export cookies: {exc}", "warn")
+                    if not self.logged_in:
+                        self.log("No TikTok session cookie found — you may not be logged in", "warn")
+
+                self.log("Closing browser (profile is written to disk)…")
+                try:
+                    ctx.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                if action == "save":
+                    self.log("Profile saved — this account is ready to publish", "success")
+        except Exception as exc:  # noqa: BLE001
+            self.error = str(exc)
+            self.log(f"Session error: {exc}", "error")
+        finally:
+            self.ready.set()
+            self.finished.set()
+
+    def _detect_username(self, page) -> None:
+        """Best-effort: read the handle so the account gets a real name."""
+        try:
+            page.goto("https://www.tiktok.com/profile", wait_until="domcontentloaded",
+                      timeout=30000)
+            page.wait_for_timeout(2500)
+            handle = page.evaluate(
+                "() => { const m = document.body.innerText.match(/@[A-Za-z0-9._]{2,24}/);"
+                " return m ? m[0] : ''; }")
+            if handle:
+                self.username = handle
+                self.log(f"Signed in as {handle}", "success")
+                db.update_tiktok_account(self.account_id, display_name=handle.lstrip("@"))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def snapshot(self) -> dict:
+        return {
+            "account_id": self.account_id,
+            "logged_in": self.logged_in,
+            "username": self.username,
+            "cookie_count": self.cookie_count,
+            "ready": self.ready.is_set(),
+            "finished": self.finished.is_set(),
+            "error": self.error,
+            "logs": self.logs[-80:],
+        }
+
+
+# --- public API -------------------------------------------------------------
+
 def status() -> dict:
+    with _lock:
+        running = _runner is not None and not _runner.finished.is_set()
+        snap = _runner.snapshot() if _runner else {}
     return {
-        "running": _session["account_id"] is not None,
-        "account_id": _session["account_id"],
-        "started_at": _session["started_at"],
+        "running": running,
         "missing": missing_deps(),
         "vnc_password": vnc_password(),
         "vnc_port": VNC_PORT,
         "novnc_page": novnc_page(),
         "diagnostics": diagnostics(),
+        "session": snap,
     }
 
 
-def start_session(account_id: str, url: str = "https://www.tiktok.com/login") -> dict:
-    """Start (or restart) the remote browser for this account."""
+def start_session(account_id: str) -> dict:
     missing = missing_deps()
-    if missing:
+    blocking = [m for m in missing if m != "novnc"]
+    if blocking:
         raise RuntimeError(
-            f"Missing on the server: {', '.join(missing)}. Run: "
-            f"sudo apt install -y xvfb x11vnc")
+            f"Missing on the server: {', '.join(blocking)}. Run ./setup.sh again "
+            f"(or: sudo apt install -y xvfb x11vnc).")
 
-    stop_session()
+    stop_session(save=False)
 
-    # 1. Virtual display
-    if not _procs.get("xvfb"):
-        _spawn("xvfb", ["Xvfb", DISPLAY, "-screen", "0", SCREEN, "-ac", "-nolisten", "tcp"])
-        time.sleep(1.5)
+    with _lock:
+        # 1. Virtual display (kept across sessions)
+        if not _procs.get("xvfb"):
+            _spawn("xvfb", ["Xvfb", DISPLAY, "-screen", "0", SCREEN, "-ac", "-nolisten", "tcp"])
+            time.sleep(1.5)
 
-    # 2. VNC server on that display, localhost only (the dashboard bridges it)
-    pw_file = _write_vnc_passfile()
-    # NOTE: never pass -nopw together with -rfbauth; they contradict each other
-    # and x11vnc then refuses the password noVNC sends.
-    _spawn("x11vnc", [
-        "x11vnc", "-display", DISPLAY, "-rfbport", str(VNC_PORT),
-        "-rfbauth", str(pw_file), "-localhost", "-forever", "-shared",
-        "-noxdamage", "-repeat",
-    ])
-    deadline = time.time() + 12
-    while time.time() < deadline and not _port_open(VNC_PORT):
-        time.sleep(0.3)
-    if not _port_open(VNC_PORT):
-        stop_session()
-        raise RuntimeError(
-            "x11vnc did not start (port 5901 never opened). Check that Xvfb and "
-            "x11vnc are installed and that no other VNC server uses that port.")
+        # 2. VNC server on that display, localhost only
+        pw_file = _write_vnc_passfile()
+        _spawn("x11vnc", [
+            "x11vnc", "-display", DISPLAY, "-rfbport", str(VNC_PORT),
+            "-rfbauth", str(pw_file), "-localhost", "-forever", "-shared",
+            "-noxdamage", "-repeat",
+        ])
+        deadline = time.time() + 12
+        while time.time() < deadline and not _port_open(VNC_PORT):
+            time.sleep(0.3)
+        if not _port_open(VNC_PORT):
+            _kill("x11vnc")
+            raise RuntimeError(
+                "x11vnc did not start (port 5901 never opened). Check that Xvfb and "
+                "x11vnc are installed and no other VNC server uses that port.")
 
-    # 3. Headful Chromium with the account's persistent profile
-    _spawn("chromium", _chromium_cmd(account_id, url), env={"DISPLAY": DISPLAY})
+        # 3. Playwright-driven headful Chromium with this account's profile
+        global _runner
+        _runner = SessionRunner(account_id)
+        _runner.start()
 
-    _session["account_id"] = account_id
-    _session["started_at"] = time.time()
+    _runner.ready.wait(timeout=60)
+    if _runner.error:
+        raise RuntimeError(_runner.error)
     return status()
 
 
-def _chromium_cmd(account_id: str, url: str) -> list[str]:
-    binary = _chromium_binary()
-    return [
-        binary,
-        f"--user-data-dir={profile_path(account_id)}",
-        "--no-first-run", "--no-default-browser-check",
-        "--disable-blink-features=AutomationControlled",
-        "--window-position=0,0", "--window-size=1280,900",
-        "--start-maximized", "--no-sandbox", "--disable-dev-shm-usage",
-        url,
-    ]
-
-
-def _chromium_binary() -> str:
-    """Prefer Playwright's Chromium (installed by setup.sh), else a system one."""
-    for env_key in ("PLAYWRIGHT_BROWSERS_PATH",):
-        base = os.environ.get(env_key)
-        if base:
-            for c in Path(base).glob("chromium*/chrome-linux/chrome"):
-                return str(c)
-    home = Path.home() / ".cache/ms-playwright"
-    for c in sorted(home.glob("chromium*/chrome-linux/chrome")):
-        return str(c)
-    for name in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
-        if _have(name):
-            return name
-    raise RuntimeError("No Chromium found. Run: python -m playwright install chromium")
-
-
-def stop_session() -> None:
-    for name in ("chromium", "x11vnc"):
-        _kill(name)
-    _session["account_id"] = None
-    _session["started_at"] = 0.0
+def stop_session(save: bool = True) -> dict:
+    """Ask the browser to finish; returns once the profile is written."""
+    global _runner
+    with _lock:
+        runner = _runner
+    if runner and not runner.finished.is_set():
+        runner.request_stop(save=save)
+        runner.finished.wait(timeout=45)
+    result = runner.snapshot() if runner else {}
+    with _lock:
+        _runner = None
+        _kill("x11vnc")
+    return result
 
 
 def shutdown() -> None:
-    stop_session()
+    try:
+        stop_session(save=True)
+    except Exception:  # noqa: BLE001
+        pass
     _kill("xvfb")
-
-
-def has_profile(account_id: str) -> bool:
-    p = profiles_dir() / account_id
-    return p.exists() and any(p.iterdir())
-
-
-def profile_dir_for(account_id: str) -> Optional[str]:
-    p = profiles_dir() / account_id
-    return str(p) if p.exists() else None
