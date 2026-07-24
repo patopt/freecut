@@ -37,18 +37,27 @@ def fetch_channel_shorts(url: str, start: int = 1, end: int = 50) -> dict:
         "playliststart": start,
         "playlistend": end,
     }
-    cookies = config.DATA_DIR / "cookies.txt"
-    if cookies.exists():
-        # Do not force player clients alongside cookies (android/ios ignore
-        # them and YouTube then returns nothing); yt-dlp picks the right one.
-        ydl_opts["cookiefile"] = str(cookies)
-    else:
-        ydl_opts["extractor_args"] = {
-            "youtube": {"player_client": ["default", "tv", "web_safari"]}
-        }
+    ydl_opts["extractor_args"] = {
+        "youtube": {"player_client": ["default", "tv", "web_safari"]}
+    }
+    # Cookies stay opt-in here too (see download.py).
+    from .. import db as _db
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(target, download=False)
+    cookies = config.DATA_DIR / "cookies.txt"
+    if cookies.exists() and _db.use_youtube_cookies():
+        ydl_opts["cookiefile"] = str(cookies)
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(target, download=False)
+    except Exception as exc:  # noqa: BLE001
+        # A blocked exit IP is the usual cause — rotate and try once more.
+        from . import vpn
+
+        if not vpn.rotate(reason=f"channel scan: {exc}"):
+            raise
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(target, download=False)
 
     entries = info.get("entries") or []
     name = info.get("channel") or info.get("uploader") or info.get("title") or "Channel"

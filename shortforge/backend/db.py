@@ -306,6 +306,15 @@ def list_jobs(limit: int = 100) -> list[dict]:
     return [_job_to_dict(r) for r in rows]
 
 
+def is_vpn_rotation_enabled() -> bool:
+    return (get_setting("vpn_rotation") or "1") == "1"
+
+
+def use_youtube_cookies() -> bool:
+    """Cookies are opt-in: forcing them broke downloads that worked without."""
+    return (get_setting("use_youtube_cookies") or "0") == "1"
+
+
 def is_paused() -> bool:
     return get_setting("paused") == "1"
 

@@ -690,6 +690,8 @@ async function openSettings() {
     } catch (_) {}
     renderTtAccounts();
     renderYtCookieStatus();
+    renderVpnStatus();
+    $('set-use-cookies').checked = !!s.use_youtube_cookies;
     try { $('service-cmd').textContent = (await api('/api/system/service')).command; } catch (_) {}
     $('settings-modal').classList.remove('hidden');
   } catch (_) {}
@@ -947,6 +949,64 @@ async function saveTtAuto() {
   } catch (e) { msg.textContent = e.message; }
 }
 
+// --- NordVPN ---------------------------------------------------------------
+
+async function renderVpnStatus() {
+  let s;
+  try { s = await api('/api/vpn/status'); } catch (_) { return; }
+  const box = $('vpn-status');
+  if (!s.installed) {
+    box.textContent = 'NordVPN CLI not installed — run ./setup.sh on the VPS.';
+  } else if (!s.logged_in) {
+    box.textContent = 'Installed, not logged in. Press "Log in to NordVPN".';
+  } else if (s.connected) {
+    box.textContent = `Connected — ${s.country || '?'} ${s.server ? '(' + s.server + ')' : ''} ${s.ip ? 'IP ' + s.ip : ''}`;
+  } else {
+    box.textContent = 'Logged in but not connected. Press "Change server".';
+  }
+  $('set-vpn-rotation').checked = !!s.rotation_enabled;
+}
+
+async function vpnLogin() {
+  const msg = $('vpn-msg'); msg.textContent = 'Asking NordVPN for a login link…';
+  $('vpn-login-box').classList.remove('hidden');
+  try {
+    const r = await api('/api/vpn/login-url', { method: 'POST' });
+    $('vpn-login-url').textContent = r.url;
+    msg.textContent = 'Open the link above in a new tab, sign in, then press "Change server".';
+  } catch (e) {
+    $('vpn-login-url').textContent = '—';
+    msg.textContent = e.message + ' — you can use an access token instead.';
+  }
+}
+
+async function vpnLoginToken() {
+  const token = $('vpn-token').value.trim();
+  const msg = $('vpn-msg');
+  if (!token) { msg.textContent = 'Paste a token first.'; return; }
+  msg.textContent = 'Logging in…';
+  try {
+    await api('/api/vpn/login-token', { method: 'POST', body: JSON.stringify({ token }) });
+    $('vpn-token').value = '';
+    msg.textContent = 'Logged in ✓';
+    renderVpnStatus();
+  } catch (e) { msg.textContent = e.message; }
+}
+
+async function vpnRotate() {
+  const msg = $('vpn-msg'); msg.textContent = 'Switching server…';
+  try {
+    const r = await api('/api/vpn/rotate', { method: 'POST' });
+    msg.textContent = r.ok ? 'Connected to a new server ✓' : 'Could not switch (check login / rotation setting).';
+  } catch (e) { msg.textContent = e.message; }
+  renderVpnStatus();
+}
+
+async function vpnDisconnect() {
+  try { await api('/api/vpn/disconnect', { method: 'POST' }); } catch (_) {}
+  renderVpnStatus();
+}
+
 // --- YouTube download cookies (remote browser) -----------------------------
 
 async function renderYtCookieStatus() {
@@ -1007,7 +1067,9 @@ async function saveSettings() {
     default_caption_style: $('set-default-caption').value,
     default_dub_captions: $('set-default-dub-captions').value,
     google_client_id: $('set-gclient').value, google_client_secret: $('set-gsecret').value,
-    tiktok_client_key: $('set-ttkey').value, tiktok_client_secret: $('set-ttsecret').value };
+    tiktok_client_key: $('set-ttkey').value, tiktok_client_secret: $('set-ttsecret').value,
+    vpn_rotation: $('set-vpn-rotation').checked,
+    use_youtube_cookies: $('set-use-cookies').checked };
   try {
     await api('/api/settings', { method: 'POST', body: JSON.stringify(body) });
     $('settings-msg').textContent = 'Saved ✓';
@@ -1084,6 +1146,10 @@ $('yt-cadence').addEventListener('change', toggleCadenceFields);
 $('yt-selection').addEventListener('change', toggleSelectionFields);
 $('btn-connect-google').addEventListener('click', connectGoogle);
 $('btn-youtube-cookies').addEventListener('click', openYoutubeCookieSession);
+$('btn-vpn-login').addEventListener('click', vpnLogin);
+$('btn-vpn-token').addEventListener('click', vpnLoginToken);
+$('btn-vpn-rotate').addEventListener('click', vpnRotate);
+$('btn-vpn-disconnect').addEventListener('click', vpnDisconnect);
 $('btn-connect-tiktok').addEventListener('click', openRemoteModal);
 $('btn-connect-tiktok-api').addEventListener('click', connectTikTokApi);
 $('btn-connect-tiktok-cookies').addEventListener('click', () => $('tt-cookie-modal').classList.remove('hidden'));

@@ -358,6 +358,33 @@
       <div id="tt-accounts" class="music-list"></div>
 
       <hr />
+      <div class="meta-label">VPN (NordVPN)</div>
+      <p class="muted">YouTube and TikTok block datacenter IPs. When a download is blocked,
+      ShortForge switches to another NordVPN server automatically and retries.</p>
+      <div id="vpn-status" class="meta-val">…</div>
+      <div class="dub-actions-row">
+        <button id="btn-vpn-login" class="btn small primary">Log in to NordVPN</button>
+        <button id="btn-vpn-rotate" class="btn small">Change server</button>
+        <button id="btn-vpn-disconnect" class="btn small danger">Disconnect</button>
+      </div>
+      <div id="vpn-login-box" class="hidden">
+        <p class="muted">Open this link, sign in, then come back — or paste an access token from
+        NordVPN → Services → NordVPN → Manual setup.</p>
+        <div class="meta-val" id="vpn-login-url">…</div>
+        <label>Access token (alternative)
+          <input type="password" id="vpn-token" placeholder="Paste your NordVPN access token" />
+        </label>
+        <button id="btn-vpn-token" class="btn small block">Log in with token</button>
+      </div>
+      <label class="switch-row" style="margin-top:10px">
+        <input type="checkbox" id="set-vpn-rotation" /> Auto-rotate server when blocked
+      </label>
+      <label class="switch-row">
+        <input type="checkbox" id="set-use-cookies" /> Use YouTube cookies for downloads
+      </label>
+      <div id="vpn-msg" class="muted"></div>
+
+      <hr />
       <div class="meta-label">Danger zone</div>
       <p class="muted">Stop everything and permanently delete all waiting, failed and canceled items (clips, dubs, uploads) with their files. Finished shorts and published videos are kept.</p>
       <button id="btn-clear-queues" class="btn danger block">🗑 Clear all queues</button>

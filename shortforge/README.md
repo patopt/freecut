@@ -266,6 +266,19 @@ account, press **Done**, and the cookies are exported automatically to
 panel then shows how many cookies are stored and when. Re-run it whenever
 downloads start failing again (cookies expire after a while).
 
+**VPN rotation (NordVPN) — the most reliable fix.** `setup.sh` installs the
+NordVPN CLI. In **Settings → VPN**, press *Log in to NordVPN*: the dashboard
+shows the browser link the CLI generates (or paste an access token from
+NordVPN → Services → NordVPN → Manual setup). Once logged in, ShortForge
+connects automatically and, whenever a download is blocked, switches to a
+different server and retries. Rotation only fires on real blocks — a private or
+deleted video fails immediately instead of burning through servers.
+
+**Cookies are opt-in.** YouTube's `android`/`ios` player clients ignore cookies,
+and forcing both together makes YouTube expose no formats at all. The default is
+therefore the plain multi-client setup; enable *Use YouTube cookies for
+downloads* in Settings only if you need it.
+
 Also make sure yt-dlp is current: `pip install -U yt-dlp` (in the venv).
 
 You can still drop a `cookies.txt` at `data/cookies.txt` by hand (e.g. from the

@@ -29,6 +29,7 @@ from .pipeline import tiktok as tiktok_mod
 from .pipeline import tiktok_browser as tiktok_browser_mod
 from .pipeline import tiktok_session as tiktok_session_mod
 from .pipeline import translate as translate_mod
+from .pipeline import vpn as vpn_mod
 from .pipeline import youtube as youtube_mod
 
 app = FastAPI(title="ShortForge")
@@ -114,6 +115,8 @@ def get_settings(_: None = Depends(require_auth)):
         "default_dub_captions": db.effective("default_dub_captions"),
         "google_client_id_set": bool(db.effective("google_client_id")),
         "google_client_secret_set": bool(db.effective("google_client_secret")),
+        "vpn_rotation": db.is_vpn_rotation_enabled(),
+        "use_youtube_cookies": db.use_youtube_cookies(),
         "tiktok_client_key_set": bool(db.effective("tiktok_client_key")),
         "tiktok_client_secret_set": bool(db.effective("tiktok_client_secret")),
     }
@@ -133,6 +136,9 @@ async def update_settings(request: Request, _: None = Depends(require_auth)):
         if val:
             db.set_setting(key, val)
     # These may be intentionally cleared (empty = none).
+    for key in ("vpn_rotation", "use_youtube_cookies"):
+        if key in body:
+            db.set_setting(key, "1" if body.get(key) else "0")
     for key in ("default_dub_music", "public_base_url", "default_caption_style",
                 "default_dub_captions"):
         if key in body:
@@ -940,6 +946,70 @@ def activity(kind: str = "", limit: int = 200, _: None = Depends(require_auth)):
 @app.delete("/api/activity")
 def clear_activity(_: None = Depends(require_auth)):
     return {"deleted": db.clear_activity()}
+
+
+# --- NordVPN ----------------------------------------------------------------
+
+@app.get("/api/vpn/status")
+async def vpn_status(_: None = Depends(require_auth)):
+    st = await asyncio.to_thread(vpn_mod.status)
+    st["rotation_enabled"] = db.is_vpn_rotation_enabled()
+    st["countries"] = vpn_mod.COUNTRIES
+    return st
+
+
+@app.post("/api/vpn/login-url")
+async def vpn_login_url(_: None = Depends(require_auth)):
+    """Ask the NordVPN CLI for the browser link that authorises this machine."""
+    if not vpn_mod.available():
+        raise HTTPException(status_code=400, detail="NordVPN CLI is not installed. Run ./setup.sh")
+    try:
+        url = await asyncio.to_thread(vpn_mod.login_url)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not url:
+        raise HTTPException(status_code=400, detail="Already logged in, or no link returned")
+    return {"url": url}
+
+
+@app.post("/api/vpn/login-token")
+async def vpn_login_token(request: Request, _: None = Depends(require_auth)):
+    body = await request.json()
+    token = str(body.get("token", "")).strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Missing token")
+    try:
+        out = await asyncio.to_thread(vpn_mod.login_with_token, token)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "message": out}
+
+
+@app.post("/api/vpn/connect")
+async def vpn_connect(request: Request, _: None = Depends(require_auth)):
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        pass
+    country = str(body.get("country", "")).strip() or None
+    try:
+        out = await asyncio.to_thread(vpn_mod.connect, country)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "message": out}
+
+
+@app.post("/api/vpn/rotate")
+async def vpn_rotate(_: None = Depends(require_auth)):
+    ok = await asyncio.to_thread(vpn_mod.rotate, "manual")
+    return {"ok": ok}
+
+
+@app.post("/api/vpn/disconnect")
+async def vpn_disconnect(_: None = Depends(require_auth)):
+    out = await asyncio.to_thread(vpn_mod.disconnect)
+    return {"ok": True, "message": out}
 
 
 @app.get("/api/system/status")

@@ -98,7 +98,30 @@ fi
 
 mkdir -p data
 
-# --- 5. noVNC web client ----------------------------------------------------
+# --- 5. NordVPN CLI (rotates the exit IP when YouTube/TikTok block us) -------
+if command -v nordvpn >/dev/null 2>&1; then
+  info "NordVPN CLI already installed."
+elif command -v apt-get >/dev/null 2>&1; then
+  info "Installing NordVPN CLI..."
+  if curl -sSf https://downloads.nordcdn.com/apps/linux/install.sh -o /tmp/nordvpn-install.sh; then
+    $SUDO sh /tmp/nordvpn-install.sh -n || warn "NordVPN install script failed"
+    rm -f /tmp/nordvpn-install.sh
+    # The CLI talks to nordvpnd over a group-restricted socket.
+    $SUDO usermod -aG nordvpn "$(whoami)" 2>/dev/null || true
+    $SUDO systemctl enable --now nordvpnd 2>/dev/null || true
+    if command -v nordvpn >/dev/null 2>&1; then
+      nordvpn set technology nordlynx >/dev/null 2>&1 || true
+      nordvpn set killswitch disabled >/dev/null 2>&1 || true
+      # Keep the dashboard reachable while the tunnel is up.
+      nordvpn set lan-discovery enabled >/dev/null 2>&1 || true
+      info "NordVPN CLI installed. Log in from the dashboard (Settings -> VPN)."
+    fi
+  else
+    warn "Could not download the NordVPN installer — VPN rotation will be disabled."
+  fi
+fi
+
+# --- 6. noVNC web client ----------------------------------------------------
 # The dashboard serves this to show the remote browser. Use the distro package
 # when present, otherwise fetch a release into data/novnc.
 if [ -f /usr/share/novnc/vnc.html ] || [ -f /usr/share/novnc/vnc_lite.html ]; then

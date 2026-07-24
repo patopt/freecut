@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 from typing import Callable, Optional
 
-from .. import config
+from .. import config, db
+from . import vpn
 
 ProgressCb = Callable[[float, str], None]
 
@@ -47,21 +48,18 @@ def download_source(url: str, job_id: str, on_progress: ProgressCb) -> dict:
         "concurrent_fragment_downloads": 4,
     }
 
-    # Datacenter/VPS IPs are often gated behind a login. If a Netscape
-    # cookies.txt is present (captured by the remote browser), use it — this is
-    # the reliable fix for "sign in to confirm you're not a bot".
+    # The original, reliable setup: force several player clients so YouTube
+    # can't reject us with "not available on this app".
+    MULTI_CLIENT = {
+        "youtube": {"player_client": ["default", "tv", "web_safari", "android", "ios"]}
+    }
+    ydl_opts["extractor_args"] = MULTI_CLIENT
+
+    # Cookies are OPT-IN (Settings): android/ios ignore them, and forcing both
+    # together made YouTube expose no formats at all. Blocks are handled by VPN
+    # rotation instead, which is what actually fixes datacenter-IP gating.
     cookies = config.DATA_DIR / "cookies.txt"
-    has_cookies = cookies.exists()
-    if has_cookies:
-        ydl_opts["cookiefile"] = str(cookies)
-    else:
-        # Without cookies, forcing several player clients works around
-        # "not available on this app". These extra clients must NOT be used
-        # together with cookies: android/ios ignore them and YouTube then
-        # returns no formats at all ("Requested format is not available").
-        ydl_opts["extractor_args"] = {
-            "youtube": {"player_client": ["default", "tv", "web_safari", "android", "ios"]}
-        }
+    has_cookies = cookies.exists() and db.use_youtube_cookies()
 
     # Format cascade, most-preferred first. YouTube often only offers VP9/AV1
     # (webm) video or Opus audio for a given resolution, so never pin the
@@ -72,6 +70,16 @@ def download_source(url: str, job_id: str, on_progress: ProgressCb) -> dict:
         "best",
         None,  # yt-dlp's own default
     ]
+
+    BLOCK_HINTS = (
+        "requested format", "format is not available", "sign in to confirm",
+        "not available on this app", "bot", "429", "too many requests",
+        "unable to download", "failed to extract",
+    )
+
+    def _cleanup() -> None:
+        for stale in work.glob("source.*"):
+            stale.unlink(missing_ok=True)
 
     def _attempt(base_opts: dict) -> tuple[Optional[dict], Optional[Exception]]:
         last: Optional[Exception] = None
@@ -87,31 +95,40 @@ def download_source(url: str, job_id: str, on_progress: ProgressCb) -> dict:
             except Exception as exc:  # noqa: BLE001
                 last = exc
                 message = str(exc).lower()
-                # Only a format problem is worth retrying; anything else
-                # (private video, bot check, network) fails identically.
-                if "requested format" not in message and "format is not available" not in message:
+                # Only YouTube-side blocks are worth retrying; a private video
+                # or a dead link fails identically every time.
+                if not any(hint in message for hint in BLOCK_HINTS):
                     raise
-                for stale in work.glob("source.*"):
-                    stale.unlink(missing_ok=True)
+                _cleanup()
         return None, last
 
-    info, last_error = _attempt(ydl_opts)
+    # Strategies, in order. Cookies (when enabled) first, then the plain
+    # multi-client setup that has always worked.
+    strategies: list[tuple[str, dict]] = []
+    if has_cookies:
+        strategies.append(("with cookies", {**ydl_opts, "cookiefile": str(cookies)}))
+    strategies.append(("standard", dict(ydl_opts)))
 
-    # Last resort: expired/invalid cookies can make YouTube expose no formats at
-    # all. Retry once cookie-less with the multi-client workaround.
-    if info is None and has_cookies:
-        on_progress(0.0, "Retrying without cookies…")
-        fallback = {k: v for k, v in ydl_opts.items() if k != "cookiefile"}
-        fallback["extractor_args"] = {
-            "youtube": {"player_client": ["default", "tv", "web_safari", "android", "ios"]}
-        }
-        info, last_error = _attempt(fallback)
+    info = None
+    last_error: Optional[Exception] = None
+    for label, opts in strategies:
+        info, last_error = _attempt(opts)
+        if info is not None:
+            break
+        on_progress(0.0, f"Blocked ({label}) — trying another route…")
+
+    # Still blocked: rotate the VPN exit IP and run the whole thing again.
+    if info is None and vpn.rotate(reason=str(last_error)[:180]):
+        on_progress(0.0, "Switched VPN server, retrying…")
+        for _label, opts in strategies:
+            info, last_error = _attempt(opts)
+            if info is not None:
+                break
 
     if info is None:
         raise RuntimeError(
-            f"Download failed: {last_error}. If this keeps happening, refresh the "
-            f"YouTube cookies from Settings (remote browser) or run "
-            f"'pip install -U yt-dlp'.")
+            f"Download failed: {last_error}. Try enabling VPN rotation in Settings, "
+            f"refreshing the YouTube cookies, or running 'pip install -U yt-dlp'.")
 
     # Resolve the final merged file.
     path = work / "source.mp4"
