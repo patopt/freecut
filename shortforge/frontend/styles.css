@@ -160,6 +160,35 @@ label input, label select { margin-top: 6px; }
 .player-card video { width: 100%; max-height: 70vh; border-radius: 12px; background: #000; }
 .player-close { position: absolute; top: 14px; right: 14px; }
 
+/* Mode tabs */
+.tabs {
+  position: sticky; top: 0; z-index: 9;
+  display: flex; gap: 6px; padding: 10px 16px;
+  max-width: 720px; margin: 0 auto;
+}
+.tab {
+  flex: 1; padding: 10px; border-radius: 10px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--muted); font-size: 0.95rem; font-weight: 600;
+}
+.tab.active { background: var(--surface-2); color: var(--text); border-color: var(--primary); }
+
+/* Channel detail */
+.channel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.channel-actions { display: flex; gap: 8px; }
+
+/* Dub chips on a channel short */
+.dub-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; }
+.dub-chip {
+  font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 999px;
+  border: none; cursor: default; background: var(--surface-2); color: var(--muted);
+}
+.dub-chip.done { background: rgba(33,192,122,0.16); color: var(--ok); cursor: pointer; }
+.dub-chip.active { background: rgba(0,229,255,0.16); color: var(--accent); }
+.dub-chip.err { background: rgba(255,84,112,0.16); color: var(--danger); }
+.btn.small { padding: 7px 10px; font-size: 0.8rem; width: 100%; }
+.translate-btn { border: 1px dashed var(--border); }
+
 @media (min-width: 640px) {
   .modal { align-items: center; }
   .modal-card, .player-card { border-radius: 18px; }

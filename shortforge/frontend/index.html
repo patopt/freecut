@@ -15,53 +15,89 @@
     </div>
   </header>
 
-  <main class="container">
-    <!-- LIST VIEW -->
-    <section id="view-list">
-      <div class="card new-job">
-        <h2>New shorts</h2>
-        <input type="text" id="job-url" placeholder="Paste a YouTube URL…" />
-        <div class="options">
-          <label>Clips
-            <select id="opt-count">
-              <option>3</option><option selected>6</option><option>8</option><option>10</option><option>12</option>
-            </select>
-          </label>
-          <label>Reframe
-            <select id="opt-reframe">
-              <option value="face" selected>Face tracking</option>
-              <option value="center">Center crop</option>
-            </select>
-          </label>
-          <label class="switch-row">
-            <input type="checkbox" id="opt-captions" checked /> Captions
-          </label>
-        </div>
-        <button id="btn-create" class="btn primary block">Generate shorts</button>
-        <div id="create-error" class="error"></div>
-      </div>
+  <nav class="tabs">
+    <button class="tab active" data-mode="clip">✂️ Clip</button>
+    <button class="tab" data-mode="copy">🎙️ Copy</button>
+  </nav>
 
-      <h2 class="section-title">Your videos</h2>
-      <div id="jobs" class="jobs"></div>
+  <main class="container">
+    <!-- ============ CLIP SCREEN ============ -->
+    <section id="screen-clip">
+      <section id="view-list">
+        <div class="card new-job">
+          <h2>New shorts</h2>
+          <input type="text" id="job-url" placeholder="Paste a YouTube URL…" />
+          <div class="options">
+            <label>Clips
+              <select id="opt-count">
+                <option>3</option><option selected>6</option><option>8</option><option>10</option><option>12</option>
+              </select>
+            </label>
+            <label>Reframe
+              <select id="opt-reframe">
+                <option value="face" selected>Face tracking</option>
+                <option value="center">Center crop</option>
+              </select>
+            </label>
+            <label class="switch-row">
+              <input type="checkbox" id="opt-captions" checked /> Captions
+            </label>
+          </div>
+          <button id="btn-create" class="btn primary block">Generate shorts</button>
+          <div id="create-error" class="error"></div>
+        </div>
+
+        <h2 class="section-title">Your videos</h2>
+        <div id="jobs" class="jobs"></div>
+      </section>
+
+      <section id="view-detail" class="hidden">
+        <button id="btn-back" class="btn ghost">← Back</button>
+        <div class="card">
+          <h2 id="detail-title">…</h2>
+          <div class="detail-meta">
+            <span id="detail-status" class="badge"></span>
+            <span id="detail-message" class="muted"></span>
+          </div>
+          <div class="progress"><div id="detail-bar" class="progress-bar"></div></div>
+          <details class="log-wrap">
+            <summary>Live log</summary>
+            <pre id="detail-log" class="log"></pre>
+          </details>
+        </div>
+        <h2 class="section-title">Generated shorts</h2>
+        <div id="shorts" class="shorts-grid"></div>
+      </section>
     </section>
 
-    <!-- DETAIL VIEW -->
-    <section id="view-detail" class="hidden">
-      <button id="btn-back" class="btn ghost">← Back</button>
-      <div class="card">
-        <h2 id="detail-title">…</h2>
-        <div class="detail-meta">
-          <span id="detail-status" class="badge"></span>
-          <span id="detail-message" class="muted"></span>
+    <!-- ============ COPY SCREEN ============ -->
+    <section id="screen-copy" class="hidden">
+      <section id="view-channels">
+        <div class="card">
+          <h2>Add a channel</h2>
+          <input type="text" id="channel-url" placeholder="YouTube channel URL or @handle…" />
+          <button id="btn-add-channel" class="btn primary block">Add channel</button>
+          <div id="channel-error" class="error"></div>
         </div>
-        <div class="progress"><div id="detail-bar" class="progress-bar"></div></div>
-        <details class="log-wrap">
-          <summary>Live log</summary>
-          <pre id="detail-log" class="log"></pre>
-        </details>
-      </div>
-      <h2 class="section-title">Generated shorts</h2>
-      <div id="shorts" class="shorts-grid"></div>
+        <h2 class="section-title">Channels</h2>
+        <div id="channels" class="jobs"></div>
+      </section>
+
+      <section id="view-channel" class="hidden">
+        <button id="btn-channel-back" class="btn ghost">← Back</button>
+        <div class="card">
+          <div class="channel-head">
+            <h2 id="channel-name">…</h2>
+            <div class="channel-actions">
+              <button id="btn-refresh-channel" class="icon-btn" title="Refresh">⟳</button>
+              <button id="btn-delete-channel" class="icon-btn" title="Delete">🗑</button>
+            </div>
+          </div>
+          <span id="channel-status" class="muted"></span>
+        </div>
+        <h2 class="section-title">Shorts</h2>
+        <div id="cshorts" class="shorts-grid"></div>
+      </section>
     </section>
   </main>
 
@@ -95,6 +131,21 @@
       </label>
       <button id="btn-save-settings" class="btn primary block">Save settings</button>
       <div id="settings-msg" class="muted"></div>
+    </div>
+  </div>
+
+  <!-- LANGUAGE PICKER MODAL (for dubbing) -->
+  <div id="lang-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Translate &amp; dub</h2>
+        <button id="btn-close-lang" class="icon-btn">✕</button>
+      </div>
+      <p class="muted">Pick the language to dub this short into.</p>
+      <label>Language
+        <select id="lang-select"></select>
+      </label>
+      <button id="btn-confirm-lang" class="btn primary block">Start translation</button>
     </div>
   </div>
 

@@ -72,6 +72,47 @@ def init_db() -> None:
                 created_at REAL NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_shorts_job ON shorts(job_id);
+
+            -- COPY mode: tracked channels, their source shorts, and dubs.
+            CREATE TABLE IF NOT EXISTS channels (
+                id         TEXT PRIMARY KEY,
+                url        TEXT,
+                name       TEXT DEFAULT '',
+                thumb      TEXT DEFAULT '',
+                status     TEXT DEFAULT 'ready',
+                message    TEXT DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS channel_shorts (
+                id          TEXT PRIMARY KEY,
+                channel_id  TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+                video_id    TEXT NOT NULL,
+                title       TEXT DEFAULT '',
+                url         TEXT DEFAULT '',
+                thumb       TEXT DEFAULT '',
+                duration    REAL DEFAULT 0,
+                published    TEXT DEFAULT '',
+                created_at  REAL NOT NULL,
+                UNIQUE(channel_id, video_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_cshorts_channel ON channel_shorts(channel_id);
+            CREATE TABLE IF NOT EXISTS dubs (
+                id          TEXT PRIMARY KEY,
+                short_id    TEXT NOT NULL REFERENCES channel_shorts(id) ON DELETE CASCADE,
+                lang        TEXT NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'queued',
+                progress    INTEGER NOT NULL DEFAULT 0,
+                stage       TEXT DEFAULT '',
+                message     TEXT DEFAULT '',
+                error       TEXT DEFAULT '',
+                log         TEXT DEFAULT '',
+                path        TEXT DEFAULT '',
+                thumb       TEXT DEFAULT '',
+                created_at  REAL NOT NULL,
+                updated_at  REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_dubs_short ON dubs(short_id);
             """
         )
         c.commit()
@@ -230,3 +271,177 @@ def get_short(short_id: str) -> Optional[dict]:
             "SELECT * FROM shorts WHERE id=?", (short_id,)
         ).fetchone()
     return dict(row) if row else None
+
+
+# --- channels (COPY mode) ---------------------------------------------------
+
+def create_channel(url: str) -> str:
+    cid = uuid.uuid4().hex[:12]
+    now = time.time()
+    with _lock:
+        c = _connect()
+        c.execute(
+            "INSERT INTO channels(id, url, status, created_at, updated_at) "
+            "VALUES(?,?,?,?,?)",
+            (cid, url, "fetching", now, now),
+        )
+        c.commit()
+    return cid
+
+
+def update_channel(channel_id: str, **fields: Any) -> None:
+    if not fields:
+        return
+    fields["updated_at"] = time.time()
+    cols = ", ".join(f"{k}=?" for k in fields)
+    with _lock:
+        c = _connect()
+        c.execute(f"UPDATE channels SET {cols} WHERE id=?", (*fields.values(), channel_id))
+        c.commit()
+
+
+def get_channel(channel_id: str) -> Optional[dict]:
+    with _lock:
+        row = _connect().execute(
+            "SELECT * FROM channels WHERE id=?", (channel_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_channels() -> list[dict]:
+    with _lock:
+        rows = _connect().execute(
+            "SELECT * FROM channels ORDER BY created_at DESC"
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        with _lock:
+            cnt = _connect().execute(
+                "SELECT COUNT(*) AS n FROM channel_shorts WHERE channel_id=?", (d["id"],)
+            ).fetchone()["n"]
+        d["short_count"] = cnt
+        out.append(d)
+    return out
+
+
+def delete_channel(channel_id: str) -> None:
+    with _lock:
+        c = _connect()
+        c.execute("DELETE FROM channels WHERE id=?", (channel_id,))
+        c.commit()
+
+
+def upsert_channel_short(channel_id: str, video_id: str, **fields: Any) -> tuple[str, bool]:
+    """Insert a channel short if new. Returns (id, is_new)."""
+    with _lock:
+        c = _connect()
+        row = c.execute(
+            "SELECT id FROM channel_shorts WHERE channel_id=? AND video_id=?",
+            (channel_id, video_id),
+        ).fetchone()
+        if row:
+            return row["id"], False
+        sid = uuid.uuid4().hex[:12]
+        c.execute(
+            "INSERT INTO channel_shorts(id, channel_id, video_id, title, url, "
+            "thumb, duration, published, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                sid, channel_id, video_id,
+                fields.get("title", ""), fields.get("url", ""),
+                fields.get("thumb", ""), fields.get("duration", 0),
+                fields.get("published", ""), time.time(),
+            ),
+        )
+        c.commit()
+    return sid, True
+
+
+def list_channel_shorts(channel_id: str) -> list[dict]:
+    with _lock:
+        rows = _connect().execute(
+            "SELECT * FROM channel_shorts WHERE channel_id=? ORDER BY created_at DESC",
+            (channel_id,),
+        ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        with _lock:
+            dubs = _connect().execute(
+                "SELECT id, lang, status, progress FROM dubs WHERE short_id=? "
+                "ORDER BY created_at DESC", (d["id"],)
+            ).fetchall()
+        d["dubs"] = [dict(x) for x in dubs]
+        result.append(d)
+    return result
+
+
+def get_channel_short(short_id: str) -> Optional[dict]:
+    with _lock:
+        row = _connect().execute(
+            "SELECT * FROM channel_shorts WHERE id=?", (short_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# --- dubs -------------------------------------------------------------------
+
+def create_dub(short_id: str, lang: str) -> str:
+    did = uuid.uuid4().hex[:12]
+    now = time.time()
+    with _lock:
+        c = _connect()
+        c.execute(
+            "INSERT INTO dubs(id, short_id, lang, status, created_at, updated_at) "
+            "VALUES(?,?,?,?,?,?)",
+            (did, short_id, lang, "queued", now, now),
+        )
+        c.commit()
+    return did
+
+
+def update_dub(dub_id: str, **fields: Any) -> None:
+    if not fields:
+        return
+    fields["updated_at"] = time.time()
+    cols = ", ".join(f"{k}=?" for k in fields)
+    with _lock:
+        c = _connect()
+        c.execute(f"UPDATE dubs SET {cols} WHERE id=?", (*fields.values(), dub_id))
+        c.commit()
+
+
+def append_dub_log(dub_id: str, line: str) -> None:
+    stamp = time.strftime("%H:%M:%S")
+    with _lock:
+        c = _connect()
+        row = c.execute("SELECT log FROM dubs WHERE id=?", (dub_id,)).fetchone()
+        prev = (row["log"] if row else "") or ""
+        lines = (prev + f"[{stamp}] {line}\n").splitlines()[-200:]
+        c.execute(
+            "UPDATE dubs SET log=?, updated_at=? WHERE id=?",
+            ("\n".join(lines) + "\n", time.time(), dub_id),
+        )
+        c.commit()
+
+
+def get_dub(dub_id: str) -> Optional[dict]:
+    with _lock:
+        row = _connect().execute("SELECT * FROM dubs WHERE id=?", (dub_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def next_queued_dub() -> Optional[dict]:
+    with _lock:
+        row = _connect().execute(
+            "SELECT * FROM dubs WHERE status='queued' ORDER BY created_at ASC LIMIT 1"
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_all_dubs_in_progress() -> list[dict]:
+    with _lock:
+        rows = _connect().execute(
+            "SELECT * FROM dubs WHERE status NOT IN ('done','error')"
+        ).fetchall()
+    return [dict(r) for r in rows]

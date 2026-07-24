@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import threading
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -18,6 +19,8 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 
 from . import auth, config, db, worker
+from .pipeline import channels as channels_mod
+from .pipeline import translate as translate_mod
 
 app = FastAPI(title="ShortForge")
 
@@ -213,6 +216,142 @@ def short_thumb(short_id: str, _: None = Depends(require_auth)):
     if not short or not short.get("thumb") or not Path(short["thumb"]).exists():
         raise HTTPException(status_code=404, detail="Not found")
     return FileResponse(short["thumb"], media_type="image/jpeg")
+
+
+# --- COPY mode: channels ----------------------------------------------------
+
+def _refresh_channel_bg(channel_id: str) -> None:
+    threading.Thread(
+        target=channels_mod.refresh_channel, args=(channel_id,), daemon=True
+    ).start()
+
+
+@app.get("/api/languages")
+def languages(_: None = Depends(require_auth)):
+    return {"languages": translate_mod.LANGUAGE_NAMES}
+
+
+@app.post("/api/channels")
+async def add_channel(request: Request, _: None = Depends(require_auth)):
+    body = await request.json()
+    url = str(body.get("url", "")).strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing channel URL")
+    cid = db.create_channel(url)
+    _refresh_channel_bg(cid)
+    return {"id": cid}
+
+
+@app.get("/api/channels")
+def get_channels(_: None = Depends(require_auth)):
+    return {"channels": db.list_channels()}
+
+
+@app.get("/api/channels/{channel_id}")
+def channel_detail(channel_id: str, _: None = Depends(require_auth)):
+    ch = db.get_channel(channel_id)
+    if not ch:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {**ch, "shorts": db.list_channel_shorts(channel_id)}
+
+
+@app.post("/api/channels/{channel_id}/refresh")
+def refresh_channel(channel_id: str, _: None = Depends(require_auth)):
+    if not db.get_channel(channel_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    db.update_channel(channel_id, status="fetching", message="Refreshing…")
+    _refresh_channel_bg(channel_id)
+    return {"ok": True}
+
+
+@app.delete("/api/channels/{channel_id}")
+def delete_channel(channel_id: str, _: None = Depends(require_auth)):
+    if not db.get_channel(channel_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    # Remove dub output files for this channel's shorts.
+    for short in db.list_channel_shorts(channel_id):
+        for d in short.get("dubs", []):
+            row = db.get_dub(d["id"])
+            if row and row.get("path"):
+                Path(row["path"]).unlink(missing_ok=True)
+            if row and row.get("thumb"):
+                Path(row["thumb"]).unlink(missing_ok=True)
+    db.delete_channel(channel_id)
+    return {"ok": True}
+
+
+# --- COPY mode: dubs --------------------------------------------------------
+
+@app.post("/api/shorts-src/{short_id}/dub")
+async def create_dub(short_id: str, request: Request, _: None = Depends(require_auth)):
+    if not db.get_channel_short(short_id):
+        raise HTTPException(status_code=404, detail="Short not found")
+    body = await request.json()
+    lang = str(body.get("lang", "")).strip()
+    if lang not in translate_mod.LANGUAGE_NAMES:
+        raise HTTPException(status_code=400, detail="Unsupported language")
+    did = db.create_dub(short_id, lang)
+    return {"id": did}
+
+
+@app.get("/api/dubs/{dub_id}")
+def get_dub(dub_id: str, _: None = Depends(require_auth)):
+    d = db.get_dub(dub_id)
+    if not d:
+        raise HTTPException(status_code=404, detail="Not found")
+    return d
+
+
+@app.get("/api/dubs/{dub_id}/events")
+async def dub_events(dub_id: str, request: Request, _: None = Depends(require_auth)):
+    terminal = {"done", "error"}
+
+    async def gen():
+        last = None
+        while True:
+            if await request.is_disconnected():
+                break
+            d = db.get_dub(dub_id)
+            if not d:
+                yield "event: gone\ndata: {}\n\n"
+                break
+            payload = json.dumps(d)
+            if payload != last:
+                yield f"data: {payload}\n\n"
+                last = payload
+            if d["status"] in terminal:
+                break
+            await asyncio.sleep(1.0)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _dub_file_or_404(dub_id: str) -> dict:
+    d = db.get_dub(dub_id)
+    if not d or not d.get("path") or not Path(d["path"]).exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return d
+
+
+@app.get("/api/dubs/{dub_id}/video")
+def dub_video(dub_id: str, _: None = Depends(require_auth)):
+    d = _dub_file_or_404(dub_id)
+    return FileResponse(d["path"], media_type="video/mp4")
+
+
+@app.get("/api/dubs/{dub_id}/download")
+def dub_download(dub_id: str, _: None = Depends(require_auth)):
+    d = _dub_file_or_404(dub_id)
+    return FileResponse(d["path"], media_type="video/mp4", filename=f"dub_{d['lang']}_{dub_id}.mp4")
+
+
+@app.get("/api/dubs/{dub_id}/thumb")
+def dub_thumb(dub_id: str, _: None = Depends(require_auth)):
+    d = db.get_dub(dub_id)
+    if not d or not d.get("thumb") or not Path(d["thumb"]).exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(d["thumb"], media_type="image/jpeg")
 
 
 # Static assets (css/js) — safe to serve without auth (no secrets).

@@ -48,7 +48,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Pop,DejaVu Sans,74,{HIGHLIGHT_COLOR},{BASE_COLOR},{OUTLINE_COLOR},&H64000000,-1,0,0,0,100,100,0,0,1,5,2,2,90,90,420,1
 
 [Events]
-Format: Layer, Start, End, Style, MarginL, MarginR, MarginV, Effect, Text
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
     lines: list[str] = []

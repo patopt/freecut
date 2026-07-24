@@ -13,6 +13,7 @@ faster-whisper==1.1.0
 google-genai==0.8.0
 opencv-python-headless==4.11.0.86
 numpy==2.2.1
+edge-tts==7.0.0
 
 # Optional public tunnel (used by run.sh --tunnel)
 pyngrok==7.2.3
