@@ -37,8 +37,6 @@ def download_source(url: str, job_id: str, on_progress: ProgressCb) -> dict:
             on_progress(1.0, "Download finished, muxing…")
 
     ydl_opts = {
-        # height<=1920 so vertical shorts (1080x1920) aren't excluded.
-        "format": "bestvideo[height<=1920][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "merge_output_format": "mp4",
         "outtmpl": outtmpl,
         "noplaylist": True,
@@ -61,8 +59,40 @@ def download_source(url: str, job_id: str, on_progress: ProgressCb) -> dict:
     if cookies.exists():
         ydl_opts["cookiefile"] = str(cookies)
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+    # Format cascade, most-preferred first. YouTube often only offers VP9/AV1
+    # (webm) video or Opus audio for a given resolution, so never pin the
+    # container; the last entry lets yt-dlp pick whatever exists.
+    format_candidates = [
+        "bestvideo*[height<=1920]+bestaudio/best[height<=1920]",
+        "bestvideo*+bestaudio/best",
+        "best",
+        None,  # yt-dlp's own default
+    ]
+
+    info = None
+    last_error: Exception | None = None
+    for fmt in format_candidates:
+        opts = dict(ydl_opts)
+        if fmt:
+            opts["format"] = fmt
+        else:
+            opts.pop("format", None)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            message = str(exc).lower()
+            # Only a format problem is worth retrying; anything else (private
+            # video, bot check, network) would fail identically every time.
+            if "requested format" not in message and "format is not available" not in message:
+                raise
+            for stale in work.glob("source.*"):
+                stale.unlink(missing_ok=True)
+
+    if info is None:
+        raise RuntimeError(f"Download failed: {last_error}")
 
     # Resolve the final merged file.
     path = work / "source.mp4"
