@@ -127,6 +127,36 @@ def init_db() -> None:
                 path       TEXT NOT NULL,
                 created_at REAL NOT NULL
             );
+            -- Connected Google accounts (OAuth tokens) + their YouTube channels.
+            CREATE TABLE IF NOT EXISTS google_accounts (
+                id         TEXT PRIMARY KEY,
+                email      TEXT DEFAULT '',
+                token      TEXT DEFAULT '{}',
+                created_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS youtube_channels (
+                id           TEXT PRIMARY KEY,
+                account_id   TEXT NOT NULL REFERENCES google_accounts(id) ON DELETE CASCADE,
+                yt_channel_id TEXT NOT NULL,
+                title        TEXT DEFAULT '',
+                thumb        TEXT DEFAULT '',
+                auto_enabled INTEGER DEFAULT 0,
+                auto_config  TEXT DEFAULT '{}',
+                created_at   REAL NOT NULL,
+                UNIQUE(account_id, yt_channel_id)
+            );
+            CREATE TABLE IF NOT EXISTS publish_queue (
+                id          TEXT PRIMARY KEY,
+                dub_id      TEXT NOT NULL REFERENCES dubs(id) ON DELETE CASCADE,
+                yt_channel_id TEXT NOT NULL,
+                scheduled_at REAL NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'pending',
+                yt_video_id TEXT DEFAULT '',
+                error       TEXT DEFAULT '',
+                created_at  REAL NOT NULL,
+                updated_at  REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_pubq_status ON publish_queue(status);
             """
         )
         # Additive migrations for the dubs table (existing installs).
@@ -591,3 +621,188 @@ def delete_music(music_id: str) -> None:
         c = _connect()
         c.execute("DELETE FROM music WHERE id=?", (music_id,))
         c.commit()
+
+
+# --- Google accounts + YouTube channels -------------------------------------
+
+def upsert_google_account(email: str, token_json: str) -> str:
+    with _lock:
+        c = _connect()
+        row = c.execute("SELECT id FROM google_accounts WHERE email=?", (email,)).fetchone()
+        if row:
+            c.execute("UPDATE google_accounts SET token=? WHERE id=?", (token_json, row["id"]))
+            c.commit()
+            return row["id"]
+        aid = uuid.uuid4().hex[:12]
+        c.execute("INSERT INTO google_accounts(id, email, token, created_at) VALUES(?,?,?,?)",
+                  (aid, email, token_json, time.time()))
+        c.commit()
+    return aid
+
+
+def get_google_account(account_id: str) -> Optional[dict]:
+    with _lock:
+        row = _connect().execute("SELECT * FROM google_accounts WHERE id=?", (account_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_google_token(account_id: str, token_json: str) -> None:
+    with _lock:
+        c = _connect()
+        c.execute("UPDATE google_accounts SET token=? WHERE id=?", (token_json, account_id))
+        c.commit()
+
+
+def list_google_accounts() -> list[dict]:
+    with _lock:
+        rows = _connect().execute("SELECT * FROM google_accounts ORDER BY created_at").fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_google_account(account_id: str) -> None:
+    with _lock:
+        c = _connect()
+        c.execute("DELETE FROM google_accounts WHERE id=?", (account_id,))
+        c.commit()
+
+
+def upsert_youtube_channel(account_id: str, yt_channel_id: str, title: str, thumb: str) -> str:
+    with _lock:
+        c = _connect()
+        row = c.execute(
+            "SELECT id FROM youtube_channels WHERE account_id=? AND yt_channel_id=?",
+            (account_id, yt_channel_id),
+        ).fetchone()
+        if row:
+            c.execute("UPDATE youtube_channels SET title=?, thumb=? WHERE id=?",
+                      (title, thumb, row["id"]))
+            c.commit()
+            return row["id"]
+        cid = uuid.uuid4().hex[:12]
+        c.execute(
+            "INSERT INTO youtube_channels(id, account_id, yt_channel_id, title, thumb, created_at) "
+            "VALUES(?,?,?,?,?,?)", (cid, account_id, yt_channel_id, title, thumb, time.time()))
+        c.commit()
+    return cid
+
+
+def get_youtube_channel(channel_id: str) -> Optional[dict]:
+    with _lock:
+        row = _connect().execute("SELECT * FROM youtube_channels WHERE id=?", (channel_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["auto_config"] = json.loads(d.get("auto_config") or "{}")
+    except (ValueError, TypeError):
+        d["auto_config"] = {}
+    return d
+
+
+def list_youtube_channels() -> list[dict]:
+    with _lock:
+        rows = _connect().execute("SELECT * FROM youtube_channels ORDER BY created_at").fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["auto_config"] = json.loads(d.get("auto_config") or "{}")
+        except (ValueError, TypeError):
+            d["auto_config"] = {}
+        out.append(d)
+    return out
+
+
+def update_youtube_channel(channel_id: str, **fields: Any) -> None:
+    if "auto_config" in fields and not isinstance(fields["auto_config"], str):
+        fields["auto_config"] = json.dumps(fields["auto_config"])
+    cols = ", ".join(f"{k}=?" for k in fields)
+    with _lock:
+        c = _connect()
+        c.execute(f"UPDATE youtube_channels SET {cols} WHERE id=?", (*fields.values(), channel_id))
+        c.commit()
+
+
+def delete_youtube_channel(channel_id: str) -> None:
+    with _lock:
+        c = _connect()
+        c.execute("DELETE FROM youtube_channels WHERE id=?", (channel_id,))
+        c.commit()
+
+
+# --- publish queue ----------------------------------------------------------
+
+def enqueue_publish(dub_id: str, yt_channel_id: str, scheduled_at: float) -> str:
+    pid = uuid.uuid4().hex[:12]
+    now = time.time()
+    with _lock:
+        c = _connect()
+        c.execute(
+            "INSERT INTO publish_queue(id, dub_id, yt_channel_id, scheduled_at, status, "
+            "created_at, updated_at) VALUES(?,?,?,?,?,?,?)",
+            (pid, dub_id, yt_channel_id, scheduled_at, "pending", now, now))
+        c.commit()
+    return pid
+
+
+def update_publish(pub_id: str, **fields: Any) -> None:
+    fields["updated_at"] = time.time()
+    cols = ", ".join(f"{k}=?" for k in fields)
+    with _lock:
+        c = _connect()
+        c.execute(f"UPDATE publish_queue SET {cols} WHERE id=?", (*fields.values(), pub_id))
+        c.commit()
+
+
+def due_publishes(now: float) -> list[dict]:
+    with _lock:
+        rows = _connect().execute(
+            "SELECT * FROM publish_queue WHERE status='pending' AND scheduled_at<=? "
+            "ORDER BY scheduled_at ASC", (now,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_publishes_for_channel(yt_channel_id: str) -> list[dict]:
+    with _lock:
+        rows = _connect().execute(
+            "SELECT * FROM publish_queue WHERE yt_channel_id=? ORDER BY scheduled_at DESC",
+            (yt_channel_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def last_publish_time(yt_channel_id: str) -> float:
+    with _lock:
+        row = _connect().execute(
+            "SELECT MAX(scheduled_at) AS m FROM publish_queue WHERE yt_channel_id=?",
+            (yt_channel_id,)).fetchone()
+    return float(row["m"]) if row and row["m"] else 0.0
+
+
+def count_publishes(yt_channel_id: str, status: str) -> int:
+    with _lock:
+        row = _connect().execute(
+            "SELECT COUNT(*) AS n FROM publish_queue WHERE yt_channel_id=? AND status=?",
+            (yt_channel_id, status)).fetchone()
+    return row["n"]
+
+
+def dub_already_queued(dub_id: str) -> bool:
+    with _lock:
+        row = _connect().execute("SELECT 1 FROM publish_queue WHERE dub_id=?", (dub_id,)).fetchone()
+    return row is not None
+
+
+def find_dub_for_short_lang(short_id: str, lang: str) -> Optional[dict]:
+    with _lock:
+        row = _connect().execute(
+            "SELECT * FROM dubs WHERE short_id=? AND lang=? ORDER BY created_at DESC LIMIT 1",
+            (short_id, lang)).fetchone()
+    return dict(row) if row else None
+
+
+def get_dub_for(short_id: str, lang: str, dest_channel_id: str) -> Optional[dict]:
+    with _lock:
+        row = _connect().execute(
+            "SELECT * FROM dubs WHERE short_id=? AND lang=? AND dest_channel_id=? LIMIT 1",
+            (short_id, lang, dest_channel_id)).fetchone()
+    return dict(row) if row else None

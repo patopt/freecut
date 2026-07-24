@@ -18,5 +18,10 @@ edge-tts==7.0.0
 # the onnxruntime-compatible build resolves for your Python; pulls misaki+espeak.
 kokoro-onnx
 
+# YouTube upload / OAuth (Copy auto-publish factory)
+google-api-python-client==2.155.0
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+
 # Optional public tunnel (used by run.sh --tunnel)
 pyngrok==7.2.3

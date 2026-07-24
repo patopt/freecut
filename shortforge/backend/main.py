@@ -19,8 +19,10 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 
 from . import auth, config, db, worker
+from .pipeline import autopublish as autopublish_mod
 from .pipeline import channels as channels_mod
 from .pipeline import translate as translate_mod
+from .pipeline import youtube as youtube_mod
 
 app = FastAPI(title="ShortForge")
 
@@ -32,11 +34,13 @@ def _startup() -> None:
     db.seed_defaults()
     auth.ensure_password_seeded()
     worker.start_worker()
+    autopublish_mod.start_scheduler()
 
 
 @app.on_event("shutdown")
 def _shutdown() -> None:
     worker.stop_worker()
+    autopublish_mod.stop_scheduler()
 
 
 # --- auth helpers -----------------------------------------------------------
@@ -97,6 +101,9 @@ def get_settings(_: None = Depends(require_auth)):
         "whisper_model": db.effective("whisper_model"),
         "tts_engine": db.effective("tts_engine"),
         "ngrok_authtoken_set": bool(db.effective("ngrok_authtoken")),
+        "default_dub_music": db.effective("default_dub_music"),
+        "google_client_id_set": bool(db.effective("google_client_id")),
+        "google_client_secret_set": bool(db.effective("google_client_secret")),
     }
 
 
@@ -104,7 +111,7 @@ def get_settings(_: None = Depends(require_auth)):
 async def update_settings(request: Request, _: None = Depends(require_auth)):
     body = await request.json()
     # Only overwrite secrets when a non-empty value is provided.
-    for key in ("gemini_api_key", "ngrok_authtoken"):
+    for key in ("gemini_api_key", "ngrok_authtoken", "google_client_id", "google_client_secret"):
         val = str(body.get(key, "")).strip()
         if val:
             db.set_setting(key, val)
@@ -112,6 +119,10 @@ async def update_settings(request: Request, _: None = Depends(require_auth)):
         val = str(body.get(key, "")).strip()
         if val:
             db.set_setting(key, val)
+    # These may be intentionally cleared (empty = none).
+    for key in ("default_dub_music", "public_base_url"):
+        if key in body:
+            db.set_setting(key, str(body.get(key, "")).strip())
     new_pw = str(body.get("new_password", "")).strip()
     if new_pw:
         auth.set_password(new_pw)
@@ -296,7 +307,7 @@ async def create_dub(short_id: str, request: Request, _: None = Depends(require_
     dest = str(body.get("dest_channel_id", "")).strip()
     if dest and not db.get_my_channel(dest):
         raise HTTPException(status_code=400, detail="Unknown destination channel")
-    music_id = str(body.get("music_id", "")).strip()
+    music_id = str(body.get("music_id", "")).strip() or db.effective("default_dub_music") or ""
     did = db.create_dub(short_id, lang, dest, music_id)
     return {"id": did}
 
@@ -314,7 +325,17 @@ async def add_my_channel(request: Request, _: None = Depends(require_auth)):
 
 @app.get("/api/my-channels")
 def get_my_channels(_: None = Depends(require_auth)):
-    return {"channels": db.list_my_channels()}
+    local = [{**c, "kind": "local"} for c in db.list_my_channels()]
+    yt = []
+    for ch in db.list_youtube_channels():
+        published = db.count_publishes(ch["id"], "published")
+        pending = db.count_publishes(ch["id"], "pending") + db.count_publishes(ch["id"], "publishing")
+        yt.append({
+            "id": ch["id"], "name": ch["title"], "kind": "youtube",
+            "thumb": ch["thumb"], "auto_enabled": ch["auto_enabled"],
+            "video_count": published, "pending_count": pending,
+        })
+    return {"channels": local + yt}
 
 
 @app.get("/api/my-channels/{channel_id}")
@@ -468,6 +489,162 @@ def delete_music(music_id: str, _: None = Depends(require_auth)):
     if m.get("path"):
         Path(m["path"]).unlink(missing_ok=True)
     db.delete_music(music_id)
+    return {"ok": True}
+
+
+# --- YouTube: OAuth + connected channels + auto mode ------------------------
+
+_oauth_states: dict[str, str] = {}
+
+
+def _public_base(request: Request) -> str:
+    override = db.effective("public_base_url")
+    if override:
+        return override.rstrip("/")
+    base = str(request.base_url).rstrip("/")
+    # Honour the proxy (ngrok) scheme/host so the redirect URI is the public one.
+    return base
+
+
+@app.get("/api/youtube/config")
+def youtube_config(request: Request, _: None = Depends(require_auth)):
+    base = _public_base(request)
+    return {
+        "client_id_set": bool(db.effective("google_client_id")),
+        "client_secret_set": bool(db.effective("google_client_secret")),
+        "redirect_uri": f"{base}/api/youtube/callback",
+        "js_origin": base,
+        "public_base_url": db.effective("public_base_url"),
+    }
+
+
+@app.get("/api/youtube/auth-url")
+def youtube_auth_url(request: Request, _: None = Depends(require_auth)):
+    cid = db.effective("google_client_id")
+    secret = db.effective("google_client_secret")
+    if not cid or not secret:
+        raise HTTPException(status_code=400, detail="Set the Google client ID/secret first")
+    import secrets as _secrets
+    state = _secrets.token_urlsafe(16)
+    redirect_uri = f"{_public_base(request)}/api/youtube/callback"
+    _oauth_states[state] = redirect_uri
+    url = youtube_mod.build_auth_url(cid, secret, redirect_uri, state)
+    return {"url": url}
+
+
+@app.get("/api/youtube/callback")
+def youtube_callback(request: Request, code: str = "", state: str = ""):
+    redirect_uri = _oauth_states.pop(state, None)
+    if not redirect_uri or not code:
+        return RedirectResponse("/?yt=error")
+    try:
+        result = youtube_mod.exchange_code(
+            db.effective("google_client_id"), db.effective("google_client_secret"),
+            redirect_uri, code)
+        account_id = db.upsert_google_account(result["email"], result["token_json"])
+        for ch in result["channels"]:
+            db.upsert_youtube_channel(account_id, ch["yt_channel_id"], ch["title"], ch["thumb"])
+        return RedirectResponse("/?yt=connected")
+    except Exception:  # noqa: BLE001
+        return RedirectResponse("/?yt=error")
+
+
+@app.get("/api/youtube/accounts")
+def youtube_accounts(_: None = Depends(require_auth)):
+    accounts = []
+    for a in db.list_google_accounts():
+        chans = [c for c in db.list_youtube_channels() if c["account_id"] == a["id"]]
+        accounts.append({"id": a["id"], "email": a["email"],
+                         "channels": [{"id": c["id"], "title": c["title"]} for c in chans]})
+    return {"accounts": accounts}
+
+
+@app.delete("/api/youtube/accounts/{account_id}")
+def youtube_disconnect(account_id: str, _: None = Depends(require_auth)):
+    if not db.get_google_account(account_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete_google_account(account_id)
+    return {"ok": True}
+
+
+@app.get("/api/youtube/channels/{channel_id}")
+def youtube_channel_detail(channel_id: str, _: None = Depends(require_auth)):
+    ch = db.get_youtube_channel(channel_id)
+    if not ch:
+        raise HTTPException(status_code=404, detail="Not found")
+    publishes = db.list_publishes_for_channel(channel_id)
+    items = []
+    published_ids = []
+    for p in publishes:
+        dub = db.get_dub(p["dub_id"]) or {}
+        src = db.get_channel_short(dub.get("short_id", "")) if dub else None
+        items.append({
+            "publish_id": p["id"], "status": p["status"], "scheduled_at": p["scheduled_at"],
+            "yt_video_id": p["yt_video_id"], "error": p["error"],
+            "dub_id": p["dub_id"], "dub_status": dub.get("status", ""),
+            "title": dub.get("tr_title") or dub.get("title") or "",
+            "lang": dub.get("lang", ""),
+            "source_video_id": src.get("video_id") if src else "",
+        })
+        if p["yt_video_id"]:
+            published_ids.append(p["yt_video_id"])
+
+    # View comparison (best-effort; needs a live token).
+    account = db.get_google_account(ch["account_id"])
+    views_translated, views_original = {}, {}
+    if account:
+        try:
+            views_translated = youtube_mod.video_stats(account, published_ids)
+            orig_ids = [it["source_video_id"] for it in items if it["source_video_id"]]
+            views_original = youtube_mod.video_stats(account, orig_ids)
+        except Exception:  # noqa: BLE001
+            pass
+    for it in items:
+        it["views_translated"] = views_translated.get(it["yt_video_id"], None)
+        it["views_original"] = views_original.get(it["source_video_id"], None)
+
+    dubbing = db.count_publishes(channel_id, "pending")  # queued/awaiting render+publish
+    return {
+        "id": ch["id"], "title": ch["title"], "thumb": ch["thumb"],
+        "auto_enabled": ch["auto_enabled"], "auto_config": ch["auto_config"],
+        "stats": {
+            "published": db.count_publishes(channel_id, "published"),
+            "pending": dubbing,
+            "errors": db.count_publishes(channel_id, "error"),
+        },
+        "items": items,
+    }
+
+
+@app.post("/api/youtube/channels/{channel_id}/auto")
+async def youtube_set_auto(channel_id: str, request: Request, _: None = Depends(require_auth)):
+    ch = db.get_youtube_channel(channel_id)
+    if not ch:
+        raise HTTPException(status_code=404, detail="Not found")
+    body = await request.json()
+    cfg = body.get("config", {}) or {}
+    enabled = 1 if body.get("enabled") else 0
+    db.update_youtube_channel(channel_id, auto_enabled=enabled, auto_config=cfg)
+    # Kick an immediate enqueue so it starts right away.
+    if enabled:
+        import threading
+        threading.Thread(
+            target=lambda: autopublish_mod.enqueue_channel(db.get_youtube_channel(channel_id)),
+            daemon=True).start()
+    return {"ok": True}
+
+
+@app.post("/api/youtube/channels/{channel_id}/publish")
+async def youtube_publish_now(channel_id: str, request: Request, _: None = Depends(require_auth)):
+    ch = db.get_youtube_channel(channel_id)
+    if not ch:
+        raise HTTPException(status_code=404, detail="Not found")
+    body = await request.json()
+    dub_id = str(body.get("dub_id", "")).strip()
+    if not db.get_dub(dub_id):
+        raise HTTPException(status_code=404, detail="Dub not found")
+    import time as _t
+    db.enqueue_publish(dub_id, channel_id, _t.time())
     return {"ok": True}
 
 

@@ -242,12 +242,119 @@ async function loadMyChannels() {
   wrap.innerHTML = '';
   for (const ch of data.channels) {
     const el = document.createElement('div'); el.className = 'job';
-    el.innerHTML = `<div class="job-info"><div class="job-title">${escapeHtml(ch.name)}</div>
-      <div class="job-sub">${ch.video_count} translated videos</div></div>
-      <span class="badge">📺</span>`;
-    el.addEventListener('click', () => openMyChannel(ch.id));
+    if (ch.kind === 'youtube') {
+      const auto = ch.auto_enabled ? ' · <span class="score">AUTO</span>' : '';
+      el.innerHTML = `<div class="job-info"><div class="job-title">▶ ${escapeHtml(ch.name)}</div>
+        <div class="job-sub">${ch.video_count} published · ${ch.pending_count || 0} queued${auto}</div></div>
+        <span class="badge yt-badge">YouTube</span>`;
+      el.addEventListener('click', () => openYtChannel(ch.id));
+    } else {
+      el.innerHTML = `<div class="job-info"><div class="job-title">${escapeHtml(ch.name)}</div>
+        <div class="job-sub">${ch.video_count} translated videos</div></div>
+        <span class="badge">📺</span>`;
+      el.addEventListener('click', () => openMyChannel(ch.id));
+    }
     wrap.appendChild(el);
   }
+}
+
+// --- connected YouTube channel detail + auto mode --------------------------
+
+let currentYtChannelId = null;
+
+function showMineView(which) {
+  $('view-mychannels').classList.toggle('hidden', which !== 'list');
+  $('view-mychannel').classList.toggle('hidden', which !== 'detail');
+  $('view-ytchannel').classList.toggle('hidden', which !== 'yt');
+}
+
+async function openYtChannel(id) {
+  currentYtChannelId = id;
+  showMineView('yt');
+  // Populate source channels + languages for the auto form.
+  try {
+    const sources = (await api('/api/channels')).channels;
+    $('yt-sources').innerHTML = sources.length ? '' : '<span class="muted">Add source channels in the Sources tab first.</span>';
+    for (const sc of sources) {
+      const id2 = `src-${sc.id}`;
+      const row = document.createElement('label'); row.className = 'check-row';
+      row.innerHTML = `<input type="checkbox" value="${sc.id}" id="${id2}" /> ${escapeHtml(sc.name || sc.url)}`;
+      $('yt-sources').appendChild(row);
+    }
+  } catch (_) {}
+  if (!languagesCache) { try { languagesCache = (await api('/api/languages')).languages; } catch (_) { languagesCache = { fr: 'French' }; } }
+  const ls = $('yt-lang'); ls.innerHTML = '';
+  for (const [c, n] of Object.entries(languagesCache)) { const o = document.createElement('option'); o.value = c; o.textContent = `${n} (${c})`; ls.appendChild(o); }
+  ls.value = 'fr';
+  await reloadYtChannel();
+  stopChannelPoll(); channelPollTimer = setInterval(reloadYtChannel, 5000);
+}
+
+async function reloadYtChannel() {
+  if (!currentYtChannelId) return;
+  let d; try { d = await api(`/api/youtube/channels/${currentYtChannelId}`); } catch (_) { return; }
+  $('ytchannel-name').textContent = '▶ ' + (d.title || 'Channel');
+  $('yt-stat-published').textContent = d.stats.published;
+  $('yt-stat-pending').textContent = d.stats.pending;
+  $('yt-stat-errors').textContent = d.stats.errors;
+  $('yt-auto-enabled').checked = !!d.auto_enabled;
+  // Apply saved config to the form (once per load).
+  const cfg = d.auto_config || {};
+  if (cfg.target_lang) $('yt-lang').value = cfg.target_lang;
+  if (cfg.cadence_mode) $('yt-cadence').value = cfg.cadence_mode;
+  if (cfg.selection) $('yt-selection').value = cfg.selection;
+  if (cfg.count) $('yt-count').value = cfg.count;
+  if (cfg.privacy) $('yt-privacy').value = cfg.privacy;
+  if (cfg.per_day) $('yt-perday').value = cfg.per_day;
+  if (cfg.times) $('yt-times').value = (cfg.times || []).join(',');
+  for (const scid of (cfg.source_channel_ids || [])) { const cb = $(`src-${scid}`); if (cb) cb.checked = true; }
+  toggleCadenceFields(); toggleSelectionFields();
+  renderYtItems(d.items || []);
+}
+
+function renderYtItems(items) {
+  const wrap = $('yt-items');
+  if (!items.length) { wrap.innerHTML = '<div class="empty">Nothing queued yet. Enable Auto or publish a dub here.</div>'; return; }
+  wrap.innerHTML = '';
+  for (const it of items) {
+    const el = document.createElement('div'); el.className = 'job';
+    const cls = it.status === 'published' ? 'done' : (it.status === 'error' ? 'error' : 'active');
+    const when = it.scheduled_at ? new Date(it.scheduled_at * 1000).toLocaleString() : '';
+    let views = '';
+    if (it.views_translated != null) {
+      const orig = it.views_original != null ? ` vs ${it.views_original} orig` : '';
+      views = ` · 👁 ${it.views_translated}${orig}`;
+    }
+    el.innerHTML = `<div class="job-info"><div class="job-title">${escapeHtml(it.title || 'Short')} <small class="muted">${it.lang.toUpperCase()}</small></div>
+      <div class="job-sub">${STAGE_LABEL[it.status] || it.status} · ${when}${views}${it.error ? ' · ' + escapeHtml(it.error) : ''}</div></div>
+      <span class="badge ${cls}">${it.status}</span>`;
+    if (it.yt_video_id) el.style.cursor = 'pointer', el.addEventListener('click', () => window.open(`https://youtu.be/${it.yt_video_id}`, '_blank'));
+    wrap.appendChild(el);
+  }
+}
+
+function toggleCadenceFields() { $('yt-manual-cadence').style.display = $('yt-cadence').value === 'manual' ? 'flex' : 'none'; }
+function toggleSelectionFields() { $('yt-count-wrap').style.display = $('yt-selection').value === 'number' ? 'block' : 'none'; }
+
+async function saveAuto() {
+  const sources = Array.from($('yt-sources').querySelectorAll('input:checked')).map((c) => c.value);
+  const cfg = {
+    source_channel_ids: sources,
+    target_lang: $('yt-lang').value,
+    cadence_mode: $('yt-cadence').value,
+    per_day: parseInt($('yt-perday').value, 10),
+    times: $('yt-times').value.split(',').map((t) => t.trim()).filter(Boolean),
+    selection: $('yt-selection').value,
+    count: parseInt($('yt-count').value, 10) || 30,
+    privacy: $('yt-privacy').value,
+  };
+  const body = { enabled: $('yt-auto-enabled').checked, config: cfg };
+  const msg = $('yt-auto-msg'); msg.textContent = 'Saving…';
+  try {
+    await api(`/api/youtube/channels/${currentYtChannelId}/auto`, { method: 'POST', body: JSON.stringify(body) });
+    msg.textContent = $('yt-auto-enabled').checked ? 'Auto mode active ✓ — translating & scheduling…' : 'Saved ✓';
+    reloadYtChannel();
+  } catch (e) { msg.textContent = e.message; }
 }
 
 async function addMyChannel() {
@@ -258,11 +365,6 @@ async function addMyChannel() {
     await api('/api/my-channels', { method: 'POST', body: JSON.stringify({ name }) });
     $('mychannel-name').value = ''; loadMyChannels();
   } catch (e) { err.textContent = e.message; }
-}
-
-function showMineView(which) {
-  $('view-mychannels').classList.toggle('hidden', which !== 'list');
-  $('view-mychannel').classList.toggle('hidden', which !== 'detail');
 }
 
 async function openMyChannel(id) {
@@ -378,10 +480,12 @@ function renderDub(d) {
 async function loadMusicOptions() {
   let tracks = [];
   try { tracks = (await api('/api/music')).music; } catch (_) {}
-  for (const selId of ['opt-music', 'dub-music']) {
+  for (const selId of ['opt-music', 'dub-music', 'set-default-music']) {
     const sel = $(selId); if (!sel) continue;
+    const prev = sel.value;
     sel.innerHTML = '<option value="">— None —</option>';
     for (const t of tracks) { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name; sel.appendChild(o); }
+    sel.value = prev;
   }
   return tracks;
 }
@@ -463,15 +567,52 @@ async function openSettings() {
     $('ngrok-status').textContent = s.ngrok_authtoken_set ? 'Token configured ✓' : 'No token set';
     $('set-gemini-key').value = ''; $('set-ngrok').value = ''; $('set-password').value = '';
     $('settings-msg').textContent = '';
-    renderMusicList();
+    await renderMusicList();
+    $('set-default-music').value = s.default_dub_music || '';
+    $('set-gclient').value = '';
+    $('gclient-status').textContent = s.google_client_id_set ? 'Client ID set ✓' : 'Not set';
+    $('gsecret-status').textContent = s.google_client_secret_set ? 'Secret set ✓' : 'Not set';
+    try {
+      const yc = await api('/api/youtube/config');
+      $('yt-redirect').textContent = yc.redirect_uri;
+      $('yt-origin').textContent = yc.js_origin;
+    } catch (_) {}
+    renderYtAccounts();
     try { $('service-cmd').textContent = (await api('/api/system/service')).command; } catch (_) {}
     $('settings-modal').classList.remove('hidden');
   } catch (_) {}
 }
+
+async function renderYtAccounts() {
+  let accounts = [];
+  try { accounts = (await api('/api/youtube/accounts')).accounts; } catch (_) {}
+  const wrap = $('yt-accounts');
+  wrap.innerHTML = accounts.length ? '' : '<span class="muted">No Google account connected.</span>';
+  for (const a of accounts) {
+    const row = document.createElement('div'); row.className = 'music-row';
+    const chans = a.channels.map((c) => c.title).join(', ') || 'no channels';
+    row.innerHTML = `<span>▶ ${escapeHtml(a.email || 'account')} <small class="muted">(${escapeHtml(chans)})</small></span><button class="row-del" title="Disconnect">🗑</button>`;
+    row.querySelector('.row-del').addEventListener('click', async () => {
+      if (!confirm('Disconnect this Google account?')) return;
+      try { await api(`/api/youtube/accounts/${a.id}`, { method: 'DELETE' }); } catch (_) {}
+      renderYtAccounts();
+    });
+    wrap.appendChild(row);
+  }
+}
+
+async function connectGoogle() {
+  try {
+    const { url } = await api('/api/youtube/auth-url');
+    window.location.href = url;
+  } catch (e) { alert(e.message); }
+}
 async function saveSettings() {
   const body = { gemini_api_key: $('set-gemini-key').value, gemini_model: $('set-gemini-model').value,
     whisper_model: $('set-whisper').value, tts_engine: $('set-tts').value,
-    ngrok_authtoken: $('set-ngrok').value, new_password: $('set-password').value };
+    ngrok_authtoken: $('set-ngrok').value, new_password: $('set-password').value,
+    default_dub_music: $('set-default-music').value,
+    google_client_id: $('set-gclient').value, google_client_secret: $('set-gsecret').value };
   try {
     await api('/api/settings', { method: 'POST', body: JSON.stringify(body) });
     $('settings-msg').textContent = 'Saved ✓';
@@ -501,6 +642,11 @@ $('btn-delete-channel').addEventListener('click', deleteCurrentChannel);
 $('btn-add-mychannel').addEventListener('click', addMyChannel);
 $('btn-mychannel-back').addEventListener('click', () => { stopChannelPoll(); currentMyChannelId = null; showMineView('list'); loadMyChannels(); });
 $('btn-delete-mychannel').addEventListener('click', deleteCurrentMyChannel);
+$('btn-ytchannel-back').addEventListener('click', () => { stopChannelPoll(); currentYtChannelId = null; showMineView('list'); loadMyChannels(); });
+$('btn-save-auto').addEventListener('click', saveAuto);
+$('yt-cadence').addEventListener('change', toggleCadenceFields);
+$('yt-selection').addEventListener('change', toggleSelectionFields);
+$('btn-connect-google').addEventListener('click', connectGoogle);
 
 $('btn-close-lang').addEventListener('click', () => $('lang-modal').classList.add('hidden'));
 $('btn-confirm-lang').addEventListener('click', confirmLang);
@@ -518,6 +664,13 @@ $('btn-logout').addEventListener('click', async () => { await fetch('/api/logout
  ['dub-modal', () => { closeDubStream(); $('dub-modal').classList.add('hidden'); }]].forEach(([id, fn]) => {
   $(id).addEventListener('click', (e) => { if (e.target.id === id) fn(); });
 });
+
+// Handle the OAuth return.
+(function handleYtReturn() {
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('yt') === 'connected') { alert('Google account connected ✓'); history.replaceState({}, '', '/'); }
+  else if (p.get('yt') === 'error') { alert('Google connection failed. Check your client ID/secret and the redirect URI in Google Cloud.'); history.replaceState({}, '', '/'); }
+})();
 
 loadJobs();
 loadMusicOptions();

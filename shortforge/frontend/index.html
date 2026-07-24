@@ -138,6 +138,50 @@
           <h2 class="section-title">Translated videos</h2>
           <div id="mydubs" class="shorts-grid"></div>
         </section>
+
+        <section id="view-ytchannel" class="hidden">
+          <button id="btn-ytchannel-back" class="btn ghost">← Back</button>
+          <div class="card">
+            <div class="channel-head">
+              <h2 id="ytchannel-name">▶ …</h2>
+              <label class="switch-row"><input type="checkbox" id="yt-auto-enabled" /> Auto</label>
+            </div>
+            <div class="yt-stats">
+              <div class="stat"><div class="stat-n" id="yt-stat-published">0</div><div class="stat-l">Published</div></div>
+              <div class="stat"><div class="stat-n" id="yt-stat-pending">0</div><div class="stat-l">Queued</div></div>
+              <div class="stat"><div class="stat-n" id="yt-stat-errors">0</div><div class="stat-l">Errors</div></div>
+            </div>
+          </div>
+
+          <div class="card" id="yt-auto-panel">
+            <h2>Auto mode</h2>
+            <label>Source channels (translate from)
+              <div id="yt-sources" class="checklist"></div>
+            </label>
+            <div class="options">
+              <label>Target language<select id="yt-lang"></select></label>
+              <label>Cadence
+                <select id="yt-cadence"><option value="optimized">Ultra Optimum (2/day, 12–15h)</option><option value="manual">Manual</option></select>
+              </label>
+            </div>
+            <div class="options" id="yt-manual-cadence" style="display:none">
+              <label>Per day<select id="yt-perday"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
+              <label>Times (comma)<input type="text" id="yt-times" placeholder="12:20,14:10" /></label>
+            </div>
+            <div class="options">
+              <label>Videos to translate
+                <select id="yt-selection"><option value="all">All</option><option value="number">A number</option><option value="manual">Manual pick</option></select>
+              </label>
+              <label id="yt-count-wrap" style="display:none">How many<input type="number" id="yt-count" value="30" min="1" /></label>
+              <label>Privacy<select id="yt-privacy"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label>
+            </div>
+            <button id="btn-save-auto" class="btn primary block">Save auto settings</button>
+            <div id="yt-auto-msg" class="muted"></div>
+          </div>
+
+          <h2 class="section-title">Publication queue</h2>
+          <div id="yt-items" class="jobs"></div>
+        </section>
       </div>
     </section>
   </main>
@@ -179,6 +223,28 @@
         <button id="btn-upload-music" class="btn small">Upload</button>
       </div>
       <div id="music-list" class="music-list"></div>
+      <label>Default music for translated shorts
+        <select id="set-default-music"><option value="">— None —</option></select>
+      </label>
+
+      <hr />
+      <div class="meta-label">YouTube / Google accounts</div>
+      <label>Google client ID
+        <input type="text" id="set-gclient" placeholder="xxxx.apps.googleusercontent.com" />
+        <small id="gclient-status" class="muted"></small>
+      </label>
+      <label>Google client secret
+        <input type="password" id="set-gsecret" placeholder="Leave blank to keep current" />
+        <small id="gsecret-status" class="muted"></small>
+      </label>
+      <div class="yt-urls">
+        <div class="meta-label">Paste these into your Google Cloud OAuth client</div>
+        <div class="url-row"><span>Authorized redirect URI</span><code id="yt-redirect">…</code></div>
+        <div class="url-row"><span>Authorized JavaScript origin</span><code id="yt-origin">…</code></div>
+        <small class="muted">Tip: use an ngrok <b>static domain</b> (free, 1 per account) so these URLs don't change on restart.</small>
+      </div>
+      <button id="btn-connect-google" class="btn primary block">Connect a Google account</button>
+      <div id="yt-accounts" class="music-list"></div>
 
       <hr />
       <div class="meta-label">24/7 mode (keep running after SSH logout)</div>

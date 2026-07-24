@@ -38,6 +38,10 @@ ENV_DEFAULTS = {
     "whisper_model": os.environ.get("WHISPER_MODEL", "small"),
     "ngrok_authtoken": os.environ.get("NGROK_AUTHTOKEN", ""),
     "tts_engine": os.environ.get("TTS_ENGINE", "kokoro"),
+    "google_client_id": os.environ.get("GOOGLE_CLIENT_ID", ""),
+    "google_client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", ""),
+    "public_base_url": os.environ.get("PUBLIC_BASE_URL", ""),
+    "default_dub_music": os.environ.get("DEFAULT_DUB_MUSIC", ""),
 }
 
 

@@ -197,6 +197,20 @@ label input, label select { margin-top: 6px; }
 .music-row { display: flex; align-items: center; justify-content: space-between;
   background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 0.85rem; }
 
+/* YouTube factory */
+.yt-badge { background: rgba(255,0,0,0.16); color: #ff5a5a; }
+.yt-stats { display: flex; gap: 10px; margin-top: 12px; }
+.yt-stats .stat { flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px; text-align: center; }
+.stat-n { font-size: 1.3rem; font-weight: 800; color: var(--accent); }
+.stat-l { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.checklist { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; max-height: 160px; overflow: auto; }
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--text); margin: 0; }
+.check-row input { width: auto; }
+.yt-urls { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin: 12px 0; }
+.url-row { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.url-row span { font-size: 0.72rem; color: var(--muted); }
+.url-row code { font-size: 0.78rem; background: #0a0c10; padding: 6px 8px; border-radius: 6px; word-break: break-all; color: var(--accent); }
+
 /* Dub detail modal */
 .dub-actions-row { display: flex; gap: 10px; margin: 14px 0; }
 .dub-actions-row .btn { flex: 1; }

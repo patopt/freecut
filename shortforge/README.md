@@ -152,6 +152,53 @@ files too.
 - **First run downloads Whisper weights** (cached afterward).
 - Long videos take a while on CPU — mostly transcription and encoding.
 
+## YouTube auto-publish factory (Copy → Mes chaînes)
+
+Connect Google accounts and let ShortForge translate a source channel's shorts
+and **auto-publish** them to your own YouTube channels on a healthy cadence.
+
+### One-time Google Cloud setup (required)
+
+1. Go to <https://console.cloud.google.com/> → create a project.
+2. **APIs & Services → Enable APIs**: enable **YouTube Data API v3** (and
+   *YouTube Analytics API* if you want view stats).
+3. **OAuth consent screen**: External, add yourself as a **Test user** (test
+   mode is fine; note that in test mode refresh tokens expire after 7 days, so
+   you re-connect weekly — publishing to *your own* channels doesn't require
+   Google's full app verification).
+4. **Credentials → Create credentials → OAuth client ID → Web application**.
+5. In ShortForge **Settings → YouTube / Google accounts**, copy the two URLs it
+   shows and paste them into the OAuth client:
+   - **Authorized JavaScript origin** → the `js_origin` value
+   - **Authorized redirect URI** → the `redirect_uri` value
+6. Paste the client's **Client ID** and **Client secret** into Settings and Save.
+7. Click **Connect a Google account** and grant access. Your channels now appear
+   in **Copy → Mes chaînes** with a red *YouTube* badge.
+
+> **Keep the URLs stable:** ngrok's random URL changes on restart, which breaks
+> the redirect URI. Use an ngrok **static domain** (free, one per account) or a
+> real domain, and set it once — Settings shows exactly what to register.
+
+### Auto mode
+
+Open a connected channel → toggle **Auto** and configure:
+- **Source channels** to translate from (checkboxes)
+- **Target language**
+- **Cadence**: *Ultra Optimum* (2 Shorts/day around 12h–15h with jitter — the
+  research-backed default) or *Manual* (your own per-day count + times)
+- **Videos to translate**: All / a number / manual pick
+- **Privacy** of the uploads
+
+ShortForge then translates in the background, queues each dub, and publishes it
+at its scheduled slot (filling title, translated description and tags). It
+re-scans source channels every ~6h for new uploads and enqueues them too. The
+channel view shows live counts (published / queued / errors) and a per-video
+**view comparison** (translated vs original).
+
+**Quota note:** YouTube cut the upload cost to ~100 units in Dec 2025, so the
+default 10,000-unit/day project allows ~100 uploads/day — plenty for a 1–2/day
+cadence across several channels.
+
 ## Troubleshooting
 
 **YouTube download fails ("not available on this app" / "sign in to confirm").**
