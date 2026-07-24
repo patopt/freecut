@@ -42,6 +42,8 @@ ENV_DEFAULTS = {
     "google_client_secret": os.environ.get("GOOGLE_CLIENT_SECRET", ""),
     "public_base_url": os.environ.get("PUBLIC_BASE_URL", ""),
     "default_dub_music": os.environ.get("DEFAULT_DUB_MUSIC", ""),
+    "tiktok_client_key": os.environ.get("TIKTOK_CLIENT_KEY", ""),
+    "tiktok_client_secret": os.environ.get("TIKTOK_CLIENT_SECRET", ""),
 }
 
 

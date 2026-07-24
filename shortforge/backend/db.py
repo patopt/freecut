@@ -157,8 +157,36 @@ def init_db() -> None:
                 updated_at  REAL NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_pubq_status ON publish_queue(status);
+            -- Global activity feed shown in the "Tool Logs" tab.
+            CREATE TABLE IF NOT EXISTS activity (
+                id         TEXT PRIMARY KEY,
+                kind       TEXT NOT NULL,
+                title      TEXT DEFAULT '',
+                detail     TEXT DEFAULT '',
+                status     TEXT DEFAULT 'info',
+                ref_type   TEXT DEFAULT '',
+                ref_id     TEXT DEFAULT '',
+                created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_activity_time ON activity(created_at);
+            -- Connected TikTok accounts (one row = one creator account).
+            CREATE TABLE IF NOT EXISTS tiktok_accounts (
+                id           TEXT PRIMARY KEY,
+                open_id      TEXT NOT NULL UNIQUE,
+                display_name TEXT DEFAULT '',
+                avatar       TEXT DEFAULT '',
+                token        TEXT DEFAULT '{}',
+                auto_enabled INTEGER DEFAULT 0,
+                auto_config  TEXT DEFAULT '{}',
+                created_at   REAL NOT NULL
+            );
             """
         )
+        # publish_queue is shared by YouTube and TikTok; yt_channel_id holds the
+        # target id for whichever platform this row targets.
+        _ensure_column(c, "publish_queue", "platform", "TEXT DEFAULT 'youtube'")
+        # TikTok accounts can be driven by the official API or a headless browser.
+        _ensure_column(c, "tiktok_accounts", "mode", "TEXT DEFAULT 'api'")
         # Additive migrations for the dubs table (existing installs).
         _ensure_column(c, "dubs", "dest_channel_id", "TEXT DEFAULT ''")
         _ensure_column(c, "dubs", "title", "TEXT DEFAULT ''")
@@ -338,9 +366,10 @@ def delete_publishes_by_statuses(statuses: tuple[str, ...]) -> int:
 def disable_all_auto() -> int:
     with _lock:
         c = _connect()
-        cur = c.execute("UPDATE youtube_channels SET auto_enabled=0 WHERE auto_enabled=1")
+        n = c.execute("UPDATE youtube_channels SET auto_enabled=0 WHERE auto_enabled=1").rowcount
+        n += c.execute("UPDATE tiktok_accounts SET auto_enabled=0 WHERE auto_enabled=1").rowcount
         c.commit()
-        return cur.rowcount
+        return n
 
 
 def next_queued_job() -> Optional[dict]:
@@ -799,17 +828,123 @@ def delete_youtube_channel(channel_id: str) -> None:
 
 # --- publish queue ----------------------------------------------------------
 
-def enqueue_publish(dub_id: str, yt_channel_id: str, scheduled_at: float) -> str:
+def enqueue_publish(dub_id: str, target_id: str, scheduled_at: float,
+                    platform: str = "youtube") -> str:
     pid = uuid.uuid4().hex[:12]
     now = time.time()
     with _lock:
         c = _connect()
         c.execute(
-            "INSERT INTO publish_queue(id, dub_id, yt_channel_id, scheduled_at, status, "
-            "created_at, updated_at) VALUES(?,?,?,?,?,?,?)",
-            (pid, dub_id, yt_channel_id, scheduled_at, "pending", now, now))
+            "INSERT INTO publish_queue(id, dub_id, yt_channel_id, platform, scheduled_at, "
+            "status, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)",
+            (pid, dub_id, target_id, platform, scheduled_at, "pending", now, now))
         c.commit()
     return pid
+
+
+# --- activity feed (Tool Logs) ----------------------------------------------
+
+def log_activity(kind: str, title: str, detail: str = "", status: str = "info",
+                 ref_type: str = "", ref_id: str = "") -> str:
+    aid = uuid.uuid4().hex[:12]
+    with _lock:
+        c = _connect()
+        c.execute(
+            "INSERT INTO activity(id, kind, title, detail, status, ref_type, ref_id, "
+            "created_at) VALUES(?,?,?,?,?,?,?,?)",
+            (aid, kind, title[:300], detail[:600], status, ref_type, ref_id, time.time()))
+        c.commit()
+    return aid
+
+
+def list_activity(limit: int = 200, kind: str = "") -> list[dict]:
+    with _lock:
+        if kind:
+            rows = _connect().execute(
+                "SELECT * FROM activity WHERE kind=? ORDER BY created_at DESC LIMIT ?",
+                (kind, limit)).fetchall()
+        else:
+            rows = _connect().execute(
+                "SELECT * FROM activity ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def clear_activity() -> int:
+    with _lock:
+        c = _connect()
+        n = c.execute("DELETE FROM activity").rowcount
+        c.commit()
+        return n
+
+
+# --- TikTok accounts --------------------------------------------------------
+
+def upsert_tiktok_account(open_id: str, display_name: str, avatar: str, token_json: str) -> str:
+    with _lock:
+        c = _connect()
+        row = c.execute("SELECT id FROM tiktok_accounts WHERE open_id=?", (open_id,)).fetchone()
+        if row:
+            c.execute("UPDATE tiktok_accounts SET display_name=?, avatar=?, token=? WHERE id=?",
+                      (display_name, avatar, token_json, row["id"]))
+            c.commit()
+            return row["id"]
+        tid = uuid.uuid4().hex[:12]
+        c.execute("INSERT INTO tiktok_accounts(id, open_id, display_name, avatar, token, "
+                  "created_at) VALUES(?,?,?,?,?,?)",
+                  (tid, open_id, display_name, avatar, token_json, time.time()))
+        c.commit()
+    return tid
+
+
+def get_tiktok_account(account_id: str) -> Optional[dict]:
+    with _lock:
+        row = _connect().execute("SELECT * FROM tiktok_accounts WHERE id=?", (account_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["auto_config"] = json.loads(d.get("auto_config") or "{}")
+    except (ValueError, TypeError):
+        d["auto_config"] = {}
+    return d
+
+
+def list_tiktok_accounts() -> list[dict]:
+    with _lock:
+        rows = _connect().execute("SELECT * FROM tiktok_accounts ORDER BY created_at").fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["auto_config"] = json.loads(d.get("auto_config") or "{}")
+        except (ValueError, TypeError):
+            d["auto_config"] = {}
+        out.append(d)
+    return out
+
+
+def update_tiktok_account(account_id: str, **fields: Any) -> None:
+    if "auto_config" in fields and not isinstance(fields["auto_config"], str):
+        fields["auto_config"] = json.dumps(fields["auto_config"])
+    cols = ", ".join(f"{k}=?" for k in fields)
+    with _lock:
+        c = _connect()
+        c.execute(f"UPDATE tiktok_accounts SET {cols} WHERE id=?", (*fields.values(), account_id))
+        c.commit()
+
+
+def update_tiktok_token(account_id: str, token_json: str) -> None:
+    with _lock:
+        c = _connect()
+        c.execute("UPDATE tiktok_accounts SET token=? WHERE id=?", (token_json, account_id))
+        c.commit()
+
+
+def delete_tiktok_account(account_id: str) -> None:
+    with _lock:
+        c = _connect()
+        c.execute("DELETE FROM tiktok_accounts WHERE id=?", (account_id,))
+        c.commit()
 
 
 def update_publish(pub_id: str, **fields: Any) -> None:

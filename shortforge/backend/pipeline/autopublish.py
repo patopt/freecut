@@ -19,6 +19,8 @@ import time
 
 from .. import db
 from . import channels as channels_mod
+from . import tiktok as tt_mod
+from . import tiktok_browser as tt_browser
 from . import youtube as yt_mod
 
 # Optimized preset: 2 posts/day inside the 12h-15h window (server local time).
@@ -75,7 +77,7 @@ def _candidate_shorts(cfg: dict) -> list[dict]:
     return cands
 
 
-def enqueue_channel(yt_channel: dict) -> int:
+def enqueue_channel(yt_channel: dict, platform: str = "youtube") -> int:
     cfg = yt_channel.get("auto_config", {}) or {}
     lang = cfg.get("target_lang", "fr")
     music_id = cfg.get("music_id", "") or db.effective("default_dub_music") or ""
@@ -104,23 +106,29 @@ def enqueue_channel(yt_channel: dict) -> int:
     if first_run and slots:
         slots[0] = time.time() + 120
     for did, ts in zip(new_dubs, slots):
-        db.enqueue_publish(did, ytid, ts)
+        db.enqueue_publish(did, ytid, ts, platform=platform)
     return len(new_dubs)
 
 
 def run_auto_enqueue(refresh_sources: bool) -> None:
-    for yt_channel in db.list_youtube_channels():
-        if not yt_channel.get("auto_enabled"):
+    targets = [(ch, "youtube") for ch in db.list_youtube_channels()]
+    targets += [(acc, "tiktok") for acc in db.list_tiktok_accounts()]
+    refreshed: set[str] = set()
+    for target, platform in targets:
+        if not target.get("auto_enabled"):
             continue
-        cfg = yt_channel.get("auto_config", {}) or {}
+        cfg = target.get("auto_config", {}) or {}
         if refresh_sources:
             for scid in cfg.get("source_channel_ids", []) or []:
+                if scid in refreshed:
+                    continue
+                refreshed.add(scid)
                 try:
                     channels_mod.refresh_channel(scid)
                 except Exception:  # noqa: BLE001
                     pass
         try:
-            enqueue_channel(yt_channel)
+            enqueue_channel(target, platform)
         except Exception:  # noqa: BLE001
             pass
 
@@ -136,6 +144,38 @@ def publish_due() -> None:
             if dub["status"] == "error":
                 db.update_publish(item["id"], status="error", error="Dub failed")
             continue
+        platform = item.get("platform") or "youtube"
+        title = dub.get("tr_title") or dub.get("title") or "Short"
+        desc = dub.get("tr_description") or dub.get("description") or ""
+        tags = [t.strip() for t in (dub.get("tags") or "").split(",") if t.strip()]
+
+        if platform == "tiktok":
+            account = db.get_tiktok_account(item["yt_channel_id"])
+            if not account:
+                db.update_publish(item["id"], status="error", error="TikTok account disconnected")
+                continue
+            db.update_publish(item["id"], status="publishing")
+            try:
+                cfg = account.get("auto_config", {}) or {}
+                caption = " ".join(
+                    [title] + [f"#{t.replace(' ', '')}" for t in tags[:5]]).strip()
+                if (account.get("mode") or "api") == "browser":
+                    pid = tt_browser.post_video(account, dub["path"], caption)
+                else:
+                    pid = tt_mod.post_video(
+                        account, dub["path"], caption,
+                        mode=cfg.get("post_mode", "direct"),
+                        privacy=cfg.get("privacy", "public"))
+                db.update_publish(item["id"], status="published", yt_video_id=pid)
+                db.log_activity("publish", f"Posted to TikTok: {title}",
+                                f"{account.get('display_name', '')} · {(account.get('mode') or 'api')}",
+                                "success", "dub", item["dub_id"])
+            except Exception as exc:  # noqa: BLE001
+                db.update_publish(item["id"], status="error", error=str(exc)[:300])
+                db.log_activity("publish", f"TikTok post failed: {title}",
+                                str(exc)[:400], "error", "dub", item["dub_id"])
+            continue
+
         yt_channel = db.get_youtube_channel(item["yt_channel_id"])
         if not yt_channel:
             db.update_publish(item["id"], status="error", error="Channel gone")
@@ -146,14 +186,16 @@ def publish_due() -> None:
             continue
         db.update_publish(item["id"], status="publishing")
         try:
-            title = dub.get("tr_title") or dub.get("title") or "Short"
-            desc = dub.get("tr_description") or dub.get("description") or ""
-            tags = [t.strip() for t in (dub.get("tags") or "").split(",") if t.strip()]
             privacy = (yt_channel.get("auto_config", {}) or {}).get("privacy", "public")
             vid = yt_mod.upload_video(account, dub["path"], title, desc, tags, privacy)
             db.update_publish(item["id"], status="published", yt_video_id=vid)
+            db.log_activity("publish", f"Published to YouTube: {title}",
+                            f"{yt_channel.get('title', '')} · https://youtu.be/{vid}",
+                            "success", "dub", item["dub_id"])
         except Exception as exc:  # noqa: BLE001
             db.update_publish(item["id"], status="error", error=str(exc)[:300])
+            db.log_activity("publish", f"YouTube upload failed: {title}",
+                            str(exc)[:400], "error", "dub", item["dub_id"])
 
 
 def _loop() -> None:

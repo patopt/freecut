@@ -66,6 +66,12 @@ info "Upgrading pip and installing Python dependencies (this can take a few minu
 pip install --upgrade pip wheel
 pip install -r requirements.txt
 
+# Chromium for headless TikTok posting (browser mode). Non-fatal if it fails —
+# only the browser-mode TikTok publishing needs it.
+info "Installing Chromium for browser-mode TikTok posting..."
+python -m playwright install --with-deps chromium || \
+  warn "Chromium install failed — TikTok browser mode won't work until you run: python -m playwright install --with-deps chromium"
+
 # --- 4. .env ----------------------------------------------------------------
 if [ ! -f .env ]; then
   info "Creating .env from template..."

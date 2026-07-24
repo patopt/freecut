@@ -121,7 +121,11 @@ def run_job(job_id: str) -> None:
         db.update_job(job_id, status="done", stage="Done", progress=100,
                       message=f"{len(clips)} shorts ready")
         db.append_log(job_id, "All shorts rendered.")
+        db.log_activity("clip", f"Generated {len(clips)} shorts: {src['title']}",
+                        f"Source {src['duration']:.0f}s", "success", "job", job_id)
 
     except Exception as exc:  # noqa: BLE001 — record failure, keep worker alive
         db.append_log(job_id, f"ERROR: {exc}")
         db.update_job(job_id, status="error", stage="Failed", error=str(exc))
+        db.log_activity("clip", f"Clip job failed: {job.get('url', '')}",
+                        str(exc)[:400], "error", "job", job_id)

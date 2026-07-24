@@ -199,6 +199,7 @@ label input, label select { margin-top: 6px; }
 
 /* YouTube factory */
 .yt-badge { background: rgba(255,0,0,0.16); color: #ff5a5a; }
+.tt-badge { background: rgba(255,255,255,0.10); color: #25f4ee; }
 .yt-stats { display: flex; gap: 10px; margin-top: 12px; }
 .yt-stats .stat { flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px; text-align: center; }
 .stat-n { font-size: 1.3rem; font-weight: 800; color: var(--accent); }

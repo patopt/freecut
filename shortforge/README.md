@@ -203,6 +203,47 @@ channel view shows live counts (published / queued / errors) and a per-video
 default 10,000-unit/day project allows ~100 uploads/day — plenty for a 1–2/day
 cadence across several channels.
 
+## TikTok publishing
+
+Connected TikTok accounts show up in **Copy → Mes chaînes** with a TikTok badge,
+next to your YouTube channels, and support the same Auto mode (sources, target
+language, cadence, captions, music).
+
+Two ways to connect, both from **Settings → TikTok accounts**:
+
+**1. Browser mode (no API, no audit)** — recommended to start.
+The VPS drives a real headless Chromium using your logged-in session, exactly
+as if you posted from your own browser.
+- Log into TikTok in your browser, export cookies with the *Get cookies.txt
+  LOCALLY* extension.
+- Settings → Posting mode → **Send to drafts / Direct**, choose *browser*, then
+  **Connect a TikTok account**, name it and upload the `cookies.txt`.
+- Requires Chromium: `setup.sh` installs it (`python -m playwright install
+  --with-deps chromium`).
+- Your password is never stored. Cookies expire after a while — re-upload a
+  fresh export when posting starts failing with "cookies expired".
+- ⚠️ Automated posting is against TikTok's Terms of Service and can get an
+  account restricted. Use accounts you own and keep the volume human (the
+  Ultra Optimum cadence is designed for this).
+
+**2. Official API** — needs a TikTok developer app.
+- Create an app at <https://developers.tiktok.com/>, paste the **client key**
+  and **client secret** into Settings, and register the redirect URI / origin
+  the page displays.
+- `video.upload` (**Send to drafts**) needs no audit: videos land in your
+  TikTok drafts to post in two taps.
+- `video.publish` (**Direct post**) publishes automatically but requires
+  passing TikTok's full app audit — until then TikTok forces every uploaded
+  video to private (SELF_ONLY).
+
+## Tool Logs
+
+The **📋 Tool Logs** tab is a single feed of everything the factory did: every
+translated video, generated clip batch, and publication (YouTube and TikTok),
+with success/error status and timing. Filter by Translations / Clips /
+Publications, tap any row to jump to that job or dub, and clear the history
+when you want.
+
 ## Troubleshooting
 
 **YouTube download fails ("not available on this app" / "sign in to confirm").**

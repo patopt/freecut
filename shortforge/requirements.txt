@@ -23,5 +23,8 @@ google-api-python-client==2.155.0
 google-auth-oauthlib==1.2.1
 google-auth-httplib2==0.2.0
 
+# Headless-browser TikTok posting (no API / no app audit needed)
+playwright==1.49.1
+
 # Optional public tunnel (used by run.sh --tunnel)
 pyngrok==7.2.3

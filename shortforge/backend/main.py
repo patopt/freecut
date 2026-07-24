@@ -8,7 +8,9 @@ import shutil
 import threading
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import (
+    Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile,
+)
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -22,6 +24,8 @@ from . import auth, config, db, worker
 from .pipeline import autopublish as autopublish_mod
 from .pipeline import captions as captions_mod
 from .pipeline import channels as channels_mod
+from .pipeline import tiktok as tiktok_mod
+from .pipeline import tiktok_browser as tiktok_browser_mod
 from .pipeline import translate as translate_mod
 from .pipeline import youtube as youtube_mod
 
@@ -107,6 +111,8 @@ def get_settings(_: None = Depends(require_auth)):
         "default_dub_captions": db.effective("default_dub_captions"),
         "google_client_id_set": bool(db.effective("google_client_id")),
         "google_client_secret_set": bool(db.effective("google_client_secret")),
+        "tiktok_client_key_set": bool(db.effective("tiktok_client_key")),
+        "tiktok_client_secret_set": bool(db.effective("tiktok_client_secret")),
     }
 
 
@@ -114,7 +120,8 @@ def get_settings(_: None = Depends(require_auth)):
 async def update_settings(request: Request, _: None = Depends(require_auth)):
     body = await request.json()
     # Only overwrite secrets when a non-empty value is provided.
-    for key in ("gemini_api_key", "ngrok_authtoken", "google_client_id", "google_client_secret"):
+    for key in ("gemini_api_key", "ngrok_authtoken", "google_client_id", "google_client_secret",
+                "tiktok_client_key", "tiktok_client_secret"):
         val = str(body.get(key, "")).strip()
         if val:
             db.set_setting(key, val)
@@ -316,12 +323,14 @@ async def create_dub(short_id: str, request: Request, _: None = Depends(require_
     if lang not in translate_mod.LANGUAGE_NAMES:
         raise HTTPException(status_code=400, detail="Unsupported language")
     dest = str(body.get("dest_channel_id", "")).strip()
-    dest_is_youtube = False
+    dest_platform = ""
     if dest:
         if db.get_my_channel(dest):
-            dest_is_youtube = False
+            dest_platform = ""
         elif db.get_youtube_channel(dest):
-            dest_is_youtube = True
+            dest_platform = "youtube"
+        elif db.get_tiktok_account(dest):
+            dest_platform = "tiktok"
         else:
             raise HTTPException(status_code=400, detail="Unknown destination channel")
     music_id = str(body.get("music_id", "")).strip() or db.effective("default_dub_music") or ""
@@ -329,10 +338,10 @@ async def create_dub(short_id: str, request: Request, _: None = Depends(require_
     if caption_style == "":
         caption_style = db.effective("default_dub_captions") or ""
     did = db.create_dub(short_id, lang, dest, music_id, caption_style)
-    # Sending to a connected YouTube channel = also publish it (when rendered).
-    if dest_is_youtube:
+    # Sending to a connected YouTube/TikTok account = also publish it once rendered.
+    if dest_platform:
         import time as _t
-        db.enqueue_publish(did, dest, _t.time())
+        db.enqueue_publish(did, dest, _t.time(), platform=dest_platform)
     return {"id": did}
 
 
@@ -359,7 +368,16 @@ def get_my_channels(_: None = Depends(require_auth)):
             "thumb": ch["thumb"], "auto_enabled": ch["auto_enabled"],
             "video_count": published, "pending_count": pending,
         })
-    return {"channels": local + yt}
+    tt = []
+    for a in db.list_tiktok_accounts():
+        tt.append({
+            "id": a["id"], "name": a["display_name"] or "TikTok", "kind": "tiktok",
+            "thumb": a["avatar"], "auto_enabled": a["auto_enabled"],
+            "video_count": db.count_publishes(a["id"], "published"),
+            "pending_count": db.count_publishes(a["id"], "pending")
+            + db.count_publishes(a["id"], "publishing"),
+        })
+    return {"channels": local + yt + tt}
 
 
 @app.get("/api/my-channels/{channel_id}")
@@ -670,7 +688,137 @@ async def youtube_publish_now(channel_id: str, request: Request, _: None = Depen
     return {"ok": True}
 
 
+# --- TikTok: OAuth + connected accounts + auto mode -------------------------
+
+_tiktok_states: dict[str, str] = {}
+
+
+@app.get("/api/tiktok/config")
+def tiktok_config(request: Request, _: None = Depends(require_auth)):
+    base = _public_base(request)
+    return {
+        "client_key_set": bool(db.effective("tiktok_client_key")),
+        "client_secret_set": bool(db.effective("tiktok_client_secret")),
+        "redirect_uri": f"{base}/api/tiktok/callback",
+        "js_origin": base,
+    }
+
+
+@app.get("/api/tiktok/auth-url")
+def tiktok_auth_url(request: Request, mode: str = "direct", _: None = Depends(require_auth)):
+    key = db.effective("tiktok_client_key")
+    if not key or not db.effective("tiktok_client_secret"):
+        raise HTTPException(status_code=400, detail="Set the TikTok client key/secret first")
+    import secrets as _secrets
+    state = _secrets.token_urlsafe(16)
+    redirect_uri = f"{_public_base(request)}/api/tiktok/callback"
+    _tiktok_states[state] = redirect_uri
+    return {"url": tiktok_mod.build_auth_url(key, redirect_uri, state, mode)}
+
+
+@app.get("/api/tiktok/callback")
+def tiktok_callback(code: str = "", state: str = ""):
+    redirect_uri = _tiktok_states.pop(state, None)
+    if not redirect_uri or not code:
+        return RedirectResponse("/?tt=error")
+    try:
+        token = tiktok_mod.exchange_code(
+            db.effective("tiktok_client_key"), db.effective("tiktok_client_secret"),
+            redirect_uri, code)
+        user = tiktok_mod.fetch_user(token["access_token"])
+        open_id = user["open_id"] or token.get("open_id", "")
+        db.upsert_tiktok_account(open_id, user["display_name"], user["avatar"],
+                                 json.dumps(token))
+        return RedirectResponse("/?tt=connected")
+    except Exception:  # noqa: BLE001
+        return RedirectResponse("/?tt=error")
+
+
+@app.post("/api/tiktok/accounts/browser")
+async def tiktok_add_browser(
+    name: str = Form(...), file: UploadFile = File(...), _: None = Depends(require_auth),
+):
+    """Add a TikTok account driven by a headless browser using exported cookies."""
+    raw = (await file.read()).decode("utf-8", errors="replace")
+    import uuid as _uuid
+    open_id = f"browser-{_uuid.uuid4().hex[:10]}"
+    account_id = db.upsert_tiktok_account(open_id, name.strip() or "TikTok", "", "{}")
+    db.update_tiktok_account(account_id, mode="browser")
+    try:
+        _path, n = tiktok_browser_mod.save_cookies(account_id, raw)
+    except Exception as exc:  # noqa: BLE001
+        db.delete_tiktok_account(account_id)
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"id": account_id, "cookies": n}
+
+
+@app.get("/api/tiktok/accounts")
+def tiktok_accounts(_: None = Depends(require_auth)):
+    return {"accounts": [
+        {"id": a["id"], "name": a["display_name"], "auto_enabled": a["auto_enabled"],
+         "mode": a.get("mode") or "api"}
+        for a in db.list_tiktok_accounts()]}
+
+
+@app.delete("/api/tiktok/accounts/{account_id}")
+def tiktok_disconnect(account_id: str, _: None = Depends(require_auth)):
+    if not db.get_tiktok_account(account_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete_tiktok_account(account_id)
+    return {"ok": True}
+
+
+@app.get("/api/tiktok/accounts/{account_id}")
+def tiktok_account_detail(account_id: str, _: None = Depends(require_auth)):
+    acc = db.get_tiktok_account(account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="Not found")
+    items = []
+    for p in db.list_publishes_for_channel(account_id):
+        dub = db.get_dub(p["dub_id"]) or {}
+        items.append({
+            "publish_id": p["id"], "status": p["status"], "scheduled_at": p["scheduled_at"],
+            "yt_video_id": p["yt_video_id"], "error": p["error"], "dub_id": p["dub_id"],
+            "dub_status": dub.get("status", ""), "lang": dub.get("lang", ""),
+            "title": dub.get("tr_title") or dub.get("title") or "",
+        })
+    return {
+        "id": acc["id"], "title": acc["display_name"], "thumb": acc["avatar"],
+        "auto_enabled": acc["auto_enabled"], "auto_config": acc["auto_config"],
+        "stats": {
+            "published": db.count_publishes(account_id, "published"),
+            "pending": db.count_publishes(account_id, "pending"),
+            "errors": db.count_publishes(account_id, "error"),
+        },
+        "items": items,
+    }
+
+
+@app.post("/api/tiktok/accounts/{account_id}/auto")
+async def tiktok_set_auto(account_id: str, request: Request, _: None = Depends(require_auth)):
+    if not db.get_tiktok_account(account_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    body = await request.json()
+    cfg = body.get("config", {}) or {}
+    enabled = 1 if body.get("enabled") else 0
+    db.update_tiktok_account(account_id, auto_enabled=enabled, auto_config=cfg)
+    started = 0
+    if enabled:
+        started = autopublish_mod.enqueue_channel(db.get_tiktok_account(account_id), "tiktok")
+    return {"ok": True, "started": started}
+
+
 # --- system: 24/7 service command -------------------------------------------
+
+@app.get("/api/activity")
+def activity(kind: str = "", limit: int = 200, _: None = Depends(require_auth)):
+    return {"activity": db.list_activity(min(max(limit, 1), 500), kind)}
+
+
+@app.delete("/api/activity")
+def clear_activity(_: None = Depends(require_auth)):
+    return {"deleted": db.clear_activity()}
+
 
 @app.get("/api/system/status")
 def system_status(_: None = Depends(require_auth)):

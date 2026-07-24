@@ -61,12 +61,17 @@ def run_dub(dub_id: str) -> None:
         )
         if note:
             db.append_dub_log(dub_id, note)
-        # Also translate the title + description for re-posting.
-        tr_title, tr_desc = translate.translate_texts(
-            [src.get("title", ""), src.get("description", "")],
-            lang, api_key=api_key, model=model,
-        )
-        db.update_dub(dub_id, tr_title=tr_title, tr_description=tr_desc)
+        # Also translate the title, description and tags for re-posting.
+        orig_tags = src.get("tags", []) or []
+        payload = [src.get("title", ""), src.get("description", "")] + orig_tags
+        translated_meta = translate.translate_texts(payload, lang, api_key=api_key, model=model)
+        tr_title = translated_meta[0] if translated_meta else src.get("title", "")
+        tr_desc = translated_meta[1] if len(translated_meta) > 1 else src.get("description", "")
+        tr_tags = [t.strip() for t in translated_meta[2:] if t.strip()]
+        db.update_dub(dub_id, tr_title=tr_title, tr_description=tr_desc,
+                      tags=", ".join(tr_tags) if tr_tags else tags_str)
+        if tr_tags:
+            db.append_dub_log(dub_id, f"Translated {len(tr_tags)} tags")
 
         # 4. TTS (timed) -------------------------------------------------------
         db.update_dub(dub_id, status="dubbing", stage="Generating voice", progress=66)
@@ -126,9 +131,14 @@ def run_dub(dub_id: str) -> None:
         db.update_dub(dub_id, status="done", stage="Done", progress=100,
                       path=str(out_file), thumb=str(thumb_file), message="Dub ready")
         db.append_dub_log(dub_id, "Dub complete.")
+        db.log_activity("dub", f"Translated to {lang.upper()}: {tr_title or short.get('title', '')}",
+                        f"Voice {voice_dur:.0f}s · {len(tr.segments)} segments",
+                        "success", "dub", dub_id)
     except Exception as exc:  # noqa: BLE001
         db.append_dub_log(dub_id, f"ERROR: {exc}")
         db.update_dub(dub_id, status="error", stage="Failed", error=str(exc))
+        db.log_activity("dub", f"Translation failed: {short.get('title', '')}",
+                        str(exc)[:400], "error", "dub", dub_id)
 
 
 def _burn_captions(video_path: Path, ass_path: Path) -> None:

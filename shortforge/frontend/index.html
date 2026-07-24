@@ -19,6 +19,7 @@
   <nav class="tabs">
     <button class="tab active" data-mode="clip">✂️ Clip</button>
     <button class="tab" data-mode="copy">🎙️ Copy</button>
+    <button class="tab" data-mode="logs">📋 Tool Logs</button>
   </nav>
 
   <main class="container">
@@ -188,7 +189,72 @@
           <h2 class="section-title">Publication queue</h2>
           <div id="yt-items" class="jobs"></div>
         </section>
+
+        <section id="view-ttaccount" class="hidden">
+          <button id="btn-ttaccount-back" class="btn ghost">← Back</button>
+          <div class="card">
+            <div class="channel-head">
+              <h2 id="ttaccount-name">♪ …</h2>
+              <label class="switch-row"><input type="checkbox" id="tt-auto-enabled" /> Auto</label>
+            </div>
+            <div class="yt-stats">
+              <div class="stat"><div class="stat-n" id="tt-stat-published">0</div><div class="stat-l">Posted</div></div>
+              <div class="stat"><div class="stat-n" id="tt-stat-pending">0</div><div class="stat-l">Queued</div></div>
+              <div class="stat"><div class="stat-n" id="tt-stat-errors">0</div><div class="stat-l">Errors</div></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Auto mode</h2>
+            <label>Source channels (translate from)
+              <div id="tt-sources" class="checklist"></div>
+            </label>
+            <div class="options">
+              <label>Target language<select id="tt-lang"></select></label>
+              <label>Cadence
+                <select id="tt-cadence"><option value="optimized">Ultra Optimum (2/day, 12–15h)</option><option value="manual">Manual</option></select>
+              </label>
+            </div>
+            <div class="options" id="tt-manual-cadence" style="display:none">
+              <label>Times (comma)<input type="text" id="tt-times" placeholder="12:20,14:10" /></label>
+            </div>
+            <div class="options">
+              <label>Videos to translate
+                <select id="tt-selection"><option value="all">All</option><option value="number">A number</option></select>
+              </label>
+              <label id="tt-count-wrap" style="display:none">How many<input type="number" id="tt-count" value="30" min="1" /></label>
+              <label>Post mode
+                <select id="tt-postmode"><option value="direct">Direct post</option><option value="inbox">To drafts</option></select>
+              </label>
+              <label>Privacy<select id="tt-privacy"><option value="public">Public</option><option value="friends">Friends</option><option value="private">Private</option></select></label>
+              <label>Captions<select id="tt-captions"><option value="">— None —</option></select></label>
+              <label>Music<select id="tt-music"><option value="">— Default —</option></select></label>
+            </div>
+            <button id="btn-save-tt-auto" class="btn primary block">Save auto settings</button>
+            <div id="tt-auto-msg" class="muted"></div>
+          </div>
+
+          <h2 class="section-title">Publication queue</h2>
+          <div id="tt-items" class="jobs"></div>
+        </section>
       </div>
+    </section>
+
+    <!-- ============ TOOL LOGS SCREEN ============ -->
+    <section id="screen-logs" class="hidden">
+      <div class="card">
+        <div class="channel-head">
+          <h2>Activity</h2>
+          <button id="btn-clear-logs" class="icon-btn" title="Clear logs">🗑</button>
+        </div>
+        <div class="subtabs" id="log-filters">
+          <button class="subtab active" data-kind="">All</button>
+          <button class="subtab" data-kind="dub">Translations</button>
+          <button class="subtab" data-kind="clip">Clips</button>
+          <button class="subtab" data-kind="publish">Publications</button>
+        </div>
+      </div>
+      <div id="logs" class="jobs"></div>
     </section>
   </main>
 
@@ -259,6 +325,30 @@
       <div id="yt-accounts" class="music-list"></div>
 
       <hr />
+      <div class="meta-label">TikTok accounts</div>
+      <label>TikTok client key
+        <input type="text" id="set-ttkey" placeholder="awxxxxxxxxxxxxxx" />
+        <small id="ttkey-status" class="muted"></small>
+      </label>
+      <label>TikTok client secret
+        <input type="password" id="set-ttsecret" placeholder="Leave blank to keep current" />
+        <small id="ttsecret-status" class="muted"></small>
+      </label>
+      <div class="yt-urls">
+        <div class="meta-label">Paste these into your TikTok developer app</div>
+        <div class="url-row"><span>Redirect URI</span><code id="tt-redirect">…</code></div>
+        <div class="url-row"><span>Site / JavaScript origin</span><code id="tt-origin">…</code></div>
+      </div>
+      <label>Posting mode
+        <select id="set-tt-mode">
+          <option value="direct">Direct post (needs audited app)</option>
+          <option value="inbox">Send to drafts (no audit needed)</option>
+        </select>
+      </label>
+      <button id="btn-connect-tiktok" class="btn primary block">Connect a TikTok account</button>
+      <div id="tt-accounts" class="music-list"></div>
+
+      <hr />
       <div class="meta-label">Danger zone</div>
       <p class="muted">Stop everything and permanently delete all waiting, failed and canceled items (clips, dubs, uploads) with their files. Finished shorts and published videos are kept.</p>
       <button id="btn-clear-queues" class="btn danger block">🗑 Clear all queues</button>
@@ -301,6 +391,19 @@
       </div>
       <div id="dub-meta"></div>
       <details class="log-wrap" open><summary>Log</summary><pre id="dub-log" class="log"></pre></details>
+    </div>
+  </div>
+
+  <!-- TIKTOK COOKIE CONNECT MODAL (browser mode) -->
+  <div id="tt-cookie-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><h2>Connect TikTok (browser)</h2><button id="btn-close-ttcookie" class="icon-btn">✕</button></div>
+      <p class="muted">No API needed. The VPS drives a real browser using your logged-in session.
+      In your browser, log into TikTok, export cookies with the “Get cookies.txt LOCALLY” extension, and upload the file here.</p>
+      <label>Account name<input type="text" id="tt-cookie-name" placeholder="e.g. My TikTok FR" /></label>
+      <label>cookies.txt<input type="file" id="tt-cookie-file" accept=".txt,.json" /></label>
+      <button id="btn-submit-ttcookie" class="btn primary block">Connect account</button>
+      <div id="tt-cookie-msg" class="muted"></div>
     </div>
   </div>
 

@@ -47,8 +47,42 @@ function switchMode(mode) {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.mode === mode));
   $('screen-clip').classList.toggle('hidden', mode !== 'clip');
   $('screen-copy').classList.toggle('hidden', mode !== 'copy');
+  $('screen-logs').classList.toggle('hidden', mode !== 'logs');
   if (mode === 'clip') { stopChannelPoll(); loadJobs(); }
+  else if (mode === 'logs') { stopChannelPoll(); closeStreams(); loadLogs(); }
   else { closeStreams(); switchSub('sources'); }
+}
+
+// ===================== TOOL LOGS ===========================================
+
+let logFilter = '';
+
+async function loadLogs() {
+  let data;
+  try { data = await api(`/api/activity?kind=${encodeURIComponent(logFilter)}&limit=300`); }
+  catch (_) { return; }
+  const wrap = $('logs');
+  const rows = data.activity || [];
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">Nothing logged yet.</div>'; return; }
+  const ICON = { dub: '🎙️', clip: '✂️', publish: '🚀' };
+  wrap.innerHTML = '';
+  for (const a of rows) {
+    const el = document.createElement('div'); el.className = 'job';
+    const cls = a.status === 'success' ? 'done' : (a.status === 'error' ? 'error' : 'active');
+    const when = new Date(a.created_at * 1000).toLocaleString();
+    el.innerHTML = `<div class="job-info">
+        <div class="job-title">${ICON[a.kind] || '•'} ${escapeHtml(a.title)}</div>
+        <div class="job-sub">${when}${a.detail ? ' · ' + escapeHtml(a.detail) : ''}</div>
+      </div><span class="badge ${cls}">${a.status}</span>`;
+    if (a.ref_type === 'dub' && a.ref_id) {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => openDubModal(a.ref_id));
+    } else if (a.ref_type === 'job' && a.ref_id) {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => { switchMode('clip'); openDetail(a.ref_id); });
+    }
+    wrap.appendChild(el);
+  }
 }
 
 function switchSub(sub) {
@@ -250,6 +284,12 @@ async function loadMyChannels() {
         <div class="job-sub">${ch.video_count} published · ${ch.pending_count || 0} queued${auto}</div></div>
         <span class="badge yt-badge">YouTube</span>`;
       el.addEventListener('click', () => openYtChannel(ch.id));
+    } else if (ch.kind === 'tiktok') {
+      const auto = ch.auto_enabled ? ' · <span class="score">AUTO</span>' : '';
+      el.innerHTML = `<div class="job-info"><div class="job-title">♪ ${escapeHtml(ch.name)}</div>
+        <div class="job-sub">${ch.video_count} posted · ${ch.pending_count || 0} queued${auto}</div></div>
+        <span class="badge tt-badge">TikTok</span>`;
+      el.addEventListener('click', () => openTtAccount(ch.id));
     } else {
       el.innerHTML = `<div class="job-info"><div class="job-title">${escapeHtml(ch.name)}</div>
         <div class="job-sub">${ch.video_count} translated videos</div></div>
@@ -268,6 +308,7 @@ function showMineView(which) {
   $('view-mychannels').classList.toggle('hidden', which !== 'list');
   $('view-mychannel').classList.toggle('hidden', which !== 'detail');
   $('view-ytchannel').classList.toggle('hidden', which !== 'yt');
+  $('view-ttaccount').classList.toggle('hidden', which !== 'tt');
 }
 
 async function openYtChannel(id) {
@@ -639,6 +680,15 @@ async function openSettings() {
       $('yt-origin').textContent = yc.js_origin;
     } catch (_) {}
     renderYtAccounts();
+    $('ttkey-status').textContent = s.tiktok_client_key_set ? 'Client key set ✓' : 'Not set';
+    $('ttsecret-status').textContent = s.tiktok_client_secret_set ? 'Secret set ✓' : 'Not set';
+    $('set-ttkey').value = ''; $('set-ttsecret').value = '';
+    try {
+      const tc = await api('/api/tiktok/config');
+      $('tt-redirect').textContent = tc.redirect_uri;
+      $('tt-origin').textContent = tc.js_origin;
+    } catch (_) {}
+    renderTtAccounts();
     try { $('service-cmd').textContent = (await api('/api/system/service')).command; } catch (_) {}
     $('settings-modal').classList.remove('hidden');
   } catch (_) {}
@@ -662,6 +712,144 @@ async function renderYtAccounts() {
   }
 }
 
+// --- TikTok accounts (settings) --------------------------------------------
+
+async function renderTtAccounts() {
+  let accounts = [];
+  try { accounts = (await api('/api/tiktok/accounts')).accounts; } catch (_) {}
+  const wrap = $('tt-accounts');
+  wrap.innerHTML = accounts.length ? '' : '<span class="muted">No TikTok account connected.</span>';
+  for (const a of accounts) {
+    const row = document.createElement('div'); row.className = 'music-row';
+    const badge = a.mode === 'browser' ? 'browser' : 'API';
+    row.innerHTML = `<span>♪ ${escapeHtml(a.name)} <small class="muted">(${badge})</small></span><button class="row-del" title="Disconnect">🗑</button>`;
+    row.querySelector('.row-del').addEventListener('click', async () => {
+      if (!confirm('Disconnect this TikTok account?')) return;
+      try { await api(`/api/tiktok/accounts/${a.id}`, { method: 'DELETE' }); } catch (_) {}
+      renderTtAccounts();
+    });
+    wrap.appendChild(row);
+  }
+}
+
+async function connectTikTok() {
+  const mode = $('set-tt-mode').value;
+  if (mode === 'browser') { $('tt-cookie-modal').classList.remove('hidden'); return; }
+  try {
+    const { url } = await api(`/api/tiktok/auth-url?mode=${encodeURIComponent(mode)}`);
+    window.location.href = url;
+  } catch (e) { alert(e.message); }
+}
+
+async function submitTtCookies() {
+  const name = $('tt-cookie-name').value.trim();
+  const file = $('tt-cookie-file').files[0];
+  const msg = $('tt-cookie-msg');
+  if (!name) { msg.textContent = 'Give the account a name.'; return; }
+  if (!file) { msg.textContent = 'Choose your cookies.txt file.'; return; }
+  msg.textContent = 'Uploading…';
+  const fd = new FormData(); fd.append('name', name); fd.append('file', file);
+  try {
+    const res = await fetch('/api/tiktok/accounts/browser', { method: 'POST', body: fd });
+    if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.detail || 'failed'); }
+    const r = await res.json();
+    msg.textContent = `Connected ✓ (${r.cookies} cookies)`;
+    $('tt-cookie-name').value = ''; $('tt-cookie-file').value = '';
+    renderTtAccounts();
+    setTimeout(() => $('tt-cookie-modal').classList.add('hidden'), 800);
+  } catch (e) { msg.textContent = e.message; }
+}
+
+// --- TikTok account detail + auto mode -------------------------------------
+
+let currentTtId = null;
+
+async function openTtAccount(id) {
+  currentTtId = id;
+  showMineView('tt');
+  try {
+    const sources = (await api('/api/channels')).channels;
+    $('tt-sources').innerHTML = sources.length ? '' : '<span class="muted">Add source channels first.</span>';
+    for (const sc of sources) {
+      const row = document.createElement('label'); row.className = 'check-row';
+      row.innerHTML = `<input type="checkbox" value="${sc.id}" id="ttsrc-${sc.id}" /> ${escapeHtml(sc.name || sc.url)}`;
+      $('tt-sources').appendChild(row);
+    }
+  } catch (_) {}
+  await loadCaptionStyles(); await loadMusicOptions();
+  if (!languagesCache) { try { languagesCache = (await api('/api/languages')).languages; } catch (_) { languagesCache = { fr: 'French' }; } }
+  const ls = $('tt-lang'); ls.innerHTML = '';
+  for (const [c, n] of Object.entries(languagesCache)) { const o = document.createElement('option'); o.value = c; o.textContent = `${n} (${c})`; ls.appendChild(o); }
+  ls.value = 'fr';
+  await reloadTtAccount();
+  stopChannelPoll(); channelPollTimer = setInterval(reloadTtAccount, 5000);
+}
+
+async function reloadTtAccount() {
+  if (!currentTtId) return;
+  let d; try { d = await api(`/api/tiktok/accounts/${currentTtId}`); } catch (_) { return; }
+  $('ttaccount-name').textContent = '♪ ' + (d.title || 'TikTok');
+  $('tt-stat-published').textContent = d.stats.published;
+  $('tt-stat-pending').textContent = d.stats.pending;
+  $('tt-stat-errors').textContent = d.stats.errors;
+  $('tt-auto-enabled').checked = !!d.auto_enabled;
+  const cfg = d.auto_config || {};
+  if (cfg.target_lang) $('tt-lang').value = cfg.target_lang;
+  if (cfg.cadence_mode) $('tt-cadence').value = cfg.cadence_mode;
+  if (cfg.selection) $('tt-selection').value = cfg.selection;
+  if (cfg.count) $('tt-count').value = cfg.count;
+  if (cfg.post_mode) $('tt-postmode').value = cfg.post_mode;
+  if (cfg.privacy) $('tt-privacy').value = cfg.privacy;
+  if (cfg.times) $('tt-times').value = (cfg.times || []).join(',');
+  if (cfg.caption_style !== undefined) $('tt-captions').value = cfg.caption_style || '';
+  if (cfg.music_id !== undefined) $('tt-music').value = cfg.music_id || '';
+  for (const scid of (cfg.source_channel_ids || [])) { const cb = $(`ttsrc-${scid}`); if (cb) cb.checked = true; }
+  $('tt-manual-cadence').style.display = $('tt-cadence').value === 'manual' ? 'flex' : 'none';
+  $('tt-count-wrap').style.display = $('tt-selection').value === 'number' ? 'block' : 'none';
+  renderTtItems(d.items || []);
+}
+
+function renderTtItems(items) {
+  const wrap = $('tt-items');
+  if (!items.length) { wrap.innerHTML = '<div class="empty">Nothing queued yet.</div>'; return; }
+  wrap.innerHTML = '';
+  for (const it of items) {
+    const el = document.createElement('div'); el.className = 'job';
+    const cls = it.status === 'published' ? 'done' : (it.status === 'error' ? 'error' : 'active');
+    const when = it.scheduled_at ? new Date(it.scheduled_at * 1000).toLocaleString() : '';
+    const dubState = it.dub_status && it.dub_status !== 'done' ? ` · dub: ${STAGE_LABEL[it.dub_status] || it.dub_status}` : '';
+    el.innerHTML = `<div class="job-info"><div class="job-title">${escapeHtml(it.title || 'Short')} <small class="muted">${(it.lang || '').toUpperCase()}</small></div>
+      <div class="job-sub">${STAGE_LABEL[it.status] || it.status} · ${when}${dubState}${it.error ? ' · ' + escapeHtml(it.error) : ''}</div></div>
+      <span class="badge ${cls}">${it.status}</span>`;
+    if (it.dub_id) { el.style.cursor = 'pointer'; el.addEventListener('click', () => openDubModal(it.dub_id)); }
+    wrap.appendChild(el);
+  }
+}
+
+async function saveTtAuto() {
+  const sources = Array.from($('tt-sources').querySelectorAll('input:checked')).map((c) => c.value);
+  const cfg = {
+    source_channel_ids: sources, target_lang: $('tt-lang').value,
+    cadence_mode: $('tt-cadence').value,
+    times: $('tt-times').value.split(',').map((t) => t.trim()).filter(Boolean),
+    selection: $('tt-selection').value, count: parseInt($('tt-count').value, 10) || 30,
+    post_mode: $('tt-postmode').value, privacy: $('tt-privacy').value,
+    caption_style: $('tt-captions').value, music_id: $('tt-music').value,
+  };
+  const msg = $('tt-auto-msg');
+  const enabled = $('tt-auto-enabled').checked;
+  if (enabled && !sources.length) { msg.textContent = 'Tick at least one source channel first.'; return; }
+  msg.textContent = 'Saving…';
+  try {
+    const r = await api(`/api/tiktok/accounts/${currentTtId}/auto`, {
+      method: 'POST', body: JSON.stringify({ enabled, config: cfg }) });
+    msg.textContent = enabled
+      ? (r.started > 0 ? `Auto active ✓ — ${r.started} videos queued.` : 'Auto active ✓ — nothing new to queue.')
+      : 'Saved ✓';
+    reloadTtAccount();
+  } catch (e) { msg.textContent = e.message; }
+}
+
 async function connectGoogle() {
   try {
     const { url } = await api('/api/youtube/auth-url');
@@ -675,7 +863,8 @@ async function saveSettings() {
     default_dub_music: $('set-default-music').value,
     default_caption_style: $('set-default-caption').value,
     default_dub_captions: $('set-default-dub-captions').value,
-    google_client_id: $('set-gclient').value, google_client_secret: $('set-gsecret').value };
+    google_client_id: $('set-gclient').value, google_client_secret: $('set-gsecret').value,
+    tiktok_client_key: $('set-ttkey').value, tiktok_client_secret: $('set-ttsecret').value };
   try {
     await api('/api/settings', { method: 'POST', body: JSON.stringify(body) });
     $('settings-msg').textContent = 'Saved ✓';
@@ -751,6 +940,22 @@ $('btn-save-auto').addEventListener('click', saveAuto);
 $('yt-cadence').addEventListener('change', toggleCadenceFields);
 $('yt-selection').addEventListener('change', toggleSelectionFields);
 $('btn-connect-google').addEventListener('click', connectGoogle);
+$('btn-connect-tiktok').addEventListener('click', connectTikTok);
+$('btn-close-ttcookie').addEventListener('click', () => $('tt-cookie-modal').classList.add('hidden'));
+$('btn-submit-ttcookie').addEventListener('click', submitTtCookies);
+$('btn-ttaccount-back').addEventListener('click', () => { stopChannelPoll(); currentTtId = null; showMineView('list'); loadMyChannels(); });
+$('btn-save-tt-auto').addEventListener('click', saveTtAuto);
+$('tt-cadence').addEventListener('change', () => { $('tt-manual-cadence').style.display = $('tt-cadence').value === 'manual' ? 'flex' : 'none'; });
+$('tt-selection').addEventListener('change', () => { $('tt-count-wrap').style.display = $('tt-selection').value === 'number' ? 'block' : 'none'; });
+$('btn-clear-logs').addEventListener('click', async () => {
+  if (!confirm('Clear all activity logs?')) return;
+  try { await api('/api/activity', { method: 'DELETE' }); } catch (_) {}
+  loadLogs();
+});
+document.querySelectorAll('#log-filters .subtab').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('#log-filters .subtab').forEach((x) => x.classList.remove('active'));
+  b.classList.add('active'); logFilter = b.dataset.kind || ''; loadLogs();
+}));
 $('btn-stop').addEventListener('click', toggleStop);
 $('btn-clear-queues').addEventListener('click', clearQueues);
 
@@ -776,6 +981,8 @@ $('btn-logout').addEventListener('click', async () => { await fetch('/api/logout
   const p = new URLSearchParams(window.location.search);
   if (p.get('yt') === 'connected') { alert('Google account connected ✓'); history.replaceState({}, '', '/'); }
   else if (p.get('yt') === 'error') { alert('Google connection failed. Check your client ID/secret and the redirect URI in Google Cloud.'); history.replaceState({}, '', '/'); }
+  else if (p.get('tt') === 'connected') { alert('TikTok account connected ✓'); history.replaceState({}, '', '/'); }
+  else if (p.get('tt') === 'error') { alert('TikTok connection failed. Check your client key/secret and the redirect URI in the TikTok developer portal.'); history.replaceState({}, '', '/'); }
 })();
 
 loadJobs();
