@@ -96,6 +96,32 @@ def has_profile(account_id: str) -> bool:
     return p.exists() and any(p.iterdir())
 
 
+# Only one Chromium may hold a given profile at a time — the publisher and the
+# remote session would otherwise fight over it.
+_profile_locks: dict[str, threading.Lock] = {}
+_profile_locks_guard = threading.Lock()
+
+
+def profile_lock(account_id: str) -> threading.Lock:
+    with _profile_locks_guard:
+        return _profile_locks.setdefault(account_id, threading.Lock())
+
+
+def clean_profile_locks(profile: Path) -> None:
+    """Remove stale Singleton* files left by a killed Chromium.
+
+    Without this, Chromium aborts with "Failed to create SingletonLock: File
+    exists" and refuses to open the profile ever again.
+    """
+    for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+        target = profile / name
+        try:
+            if target.is_symlink() or target.exists():
+                target.unlink()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
@@ -268,6 +294,15 @@ class SessionRunner(threading.Thread):
 
         profile = profile_path(self.account_id)
         self.log(f"Opening browser profile {profile.name}")
+        lock = profile_lock(self.account_id)
+        if not lock.acquire(timeout=60):
+            self.error = ("This account's browser is already in use (a publish is "
+                          "running). Try again in a moment.")
+            self.log(self.error, "error")
+            self.ready.set()
+            self.finished.set()
+            return
+        clean_profile_locks(profile)
         try:
             with sync_playwright() as pw:
                 ctx = pw.chromium.launch_persistent_context(
@@ -381,6 +416,11 @@ class SessionRunner(threading.Thread):
             self.error = str(exc)
             self.log(f"Session error: {exc}", "error")
         finally:
+            clean_profile_locks(profile)
+            try:
+                lock.release()
+            except RuntimeError:
+                pass
             self.ready.set()
             self.finished.set()
 

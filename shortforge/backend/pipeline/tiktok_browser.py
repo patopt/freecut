@@ -251,6 +251,31 @@ def post_video(account: dict, video_path: str, caption: str, log: Log = lambda _
     args = ["--no-sandbox", "--disable-dev-shm-usage",
             "--disable-blink-features=AutomationControlled"]
 
+    # Chromium allows a single instance per profile; take the same lock the
+    # remote session uses and clear any stale SingletonLock first.
+    lock = tiktok_session.profile_lock(account["id"]) if use_profile else None
+    if lock is not None and not lock.acquire(timeout=120):
+        raise RuntimeError(
+            "This account's browser is busy (remote session open). Close it and retry.")
+    if use_profile:
+        tiktok_session.clean_profile_locks(profile)
+
+    try:
+        return _run_upload(video_path, caption, log, profile, use_profile,
+                           state_path, shots, args)
+    finally:
+        if use_profile:
+            tiktok_session.clean_profile_locks(profile)
+        if lock is not None:
+            try:
+                lock.release()
+            except RuntimeError:
+                pass
+
+
+def _run_upload(video_path, caption, log, profile, use_profile, state_path, shots, args) -> str:
+    from playwright.sync_api import sync_playwright
+
     with sync_playwright() as pw:
         browser = None
         if use_profile:
@@ -277,7 +302,7 @@ def post_video(account: dict, video_path: str, caption: str, log: Log = lambda _
                     page.goto(url, wait_until="domcontentloaded", timeout=90000)
                     page.wait_for_timeout(5000)
                     if "login" in page.url:
-                        raise RuntimeError("Redirected to login — cookies expired, export them again")
+                        raise RuntimeError("Redirected to login — session expired, reconnect the account")
                     _find_and_upload(page, video_path, caption, log)
                     if not use_profile:
                         # Persist any refreshed cookies for next time.

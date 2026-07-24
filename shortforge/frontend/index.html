@@ -426,6 +426,14 @@
         <button id="dub-retry" class="btn small">⟳ Retry</button>
         <button id="dub-delete" class="btn small danger">🗑 Delete</button>
       </div>
+      <div id="dub-publish-box" class="hidden">
+        <div class="meta-label">Publish to another channel</div>
+        <div class="music-upload">
+          <select id="dub-target"><option value="">— Pick a channel —</option></select>
+          <button id="btn-dub-publish-to" class="btn small primary">Queue</button>
+        </div>
+        <div id="dub-publish-msg" class="muted"></div>
+      </div>
       <div id="dub-meta"></div>
       <details class="log-wrap" open><summary>Log</summary><pre id="dub-log" class="log"></pre></details>
     </div>

@@ -862,6 +862,34 @@ async def vnc_bridge(ws: WebSocket):
         pass
 
 
+@app.post("/api/dubs/{dub_id}/publish-to")
+async def publish_dub_to(dub_id: str, request: Request, _: None = Depends(require_auth)):
+    """Send an already-translated video to an additional YouTube/TikTok account."""
+    dub = db.get_dub(dub_id)
+    if not dub:
+        raise HTTPException(status_code=404, detail="Dub not found")
+    body = await request.json()
+    target = str(body.get("target_id", "")).strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="Pick a destination channel")
+    if db.get_youtube_channel(target):
+        platform = "youtube"
+    elif db.get_tiktok_account(target):
+        platform = "tiktok"
+    else:
+        raise HTTPException(status_code=400, detail="Unknown destination channel")
+    for row in db.list_publishes_for_channel(target):
+        if row["dub_id"] == dub_id and row["status"] in ("pending", "publishing", "published"):
+            raise HTTPException(status_code=400, detail="Already queued for that channel")
+    import time as _t
+    when = float(body.get("scheduled_at") or 0) or _t.time()
+    db.enqueue_publish(dub_id, target, when, platform=platform)
+    db.log_activity(
+        "publish", f"Queued for another channel: {dub.get('tr_title') or dub.get('title') or ''}",
+        platform, "info", "dub", dub_id)
+    return {"ok": True, "platform": platform}
+
+
 @app.post("/api/publishes/{pub_id}/manual")
 async def publish_manually(pub_id: str, _: None = Depends(require_auth)):
     """Open the remote browser with the video and caption already attached."""

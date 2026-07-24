@@ -509,6 +509,36 @@ async function confirmLang() {
 
 function closeDubStream() { if (dubEventSource) { dubEventSource.close(); dubEventSource = null; } }
 
+async function populateDubTargets() {
+  const sel = $('dub-target');
+  if (sel.dataset.filled === '1') return;
+  try {
+    const chans = (await api('/api/my-channels')).channels
+      .filter((c) => c.kind === 'youtube' || c.kind === 'tiktok');
+    sel.innerHTML = '<option value="">— Pick a channel —</option>';
+    for (const c of chans) {
+      const o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = (c.kind === 'youtube' ? '▶ ' : '♪ ') + c.name;
+      sel.appendChild(o);
+    }
+    sel.dataset.filled = '1';
+  } catch (_) {}
+}
+
+async function publishDubToChannel() {
+  const target = $('dub-target').value;
+  const msg = $('dub-publish-msg');
+  if (!target) { msg.textContent = 'Pick a channel first.'; return; }
+  if (!currentDubId) return;
+  msg.textContent = 'Queueing…';
+  try {
+    const r = await api(`/api/dubs/${currentDubId}/publish-to`, {
+      method: 'POST', body: JSON.stringify({ target_id: target }) });
+    msg.textContent = `Queued for ${r.platform} ✓ — it will publish on schedule.`;
+  } catch (e) { msg.textContent = e.message; }
+}
+
 async function openDubModal(dubId) {
   currentDubId = dubId;
   closeDubStream();
@@ -531,6 +561,13 @@ function renderDub(d) {
     $('dub-play').onclick = () => openPlayer(`/api/dubs/${d.id}/video`, `/api/dubs/${d.id}/download`);
     $('dub-dl').href = `/api/dubs/${d.id}/download`;
   } else { actions.classList.add('hidden'); }
+  // Cross-posting: only makes sense once the video exists.
+  const box = $('dub-publish-box');
+  box.classList.toggle('hidden', d.status !== 'done');
+  if (d.status === 'done') {
+    currentDubId = d.id;
+    populateDubTargets();
+  }
   // Metadata (translated title/description + original tags).
   const meta = $('dub-meta'); meta.innerHTML = '';
   const rows = [];
@@ -1249,6 +1286,7 @@ $('btn-clear-queues').addEventListener('click', clearQueues);
 $('btn-close-lang').addEventListener('click', () => $('lang-modal').classList.add('hidden'));
 $('btn-confirm-lang').addEventListener('click', confirmLang);
 $('btn-close-dub').addEventListener('click', () => { closeDubStream(); $('dub-modal').classList.add('hidden'); });
+$('btn-dub-publish-to').addEventListener('click', publishDubToChannel);
 
 $('btn-settings').addEventListener('click', openSettings);
 $('btn-close-settings').addEventListener('click', () => $('settings-modal').classList.add('hidden'));
