@@ -594,6 +594,28 @@ def youtube_callback(request: Request, code: str = "", state: str = ""):
         return RedirectResponse("/?yt=error")
 
 
+@app.post("/api/youtube/session/start")
+async def youtube_session_start(_: None = Depends(require_auth)):
+    """Open the remote browser on youtube.com so cookies can be captured."""
+    try:
+        info = await asyncio.to_thread(
+            tiktok_session_mod.start_session,
+            tiktok_session_mod.YOUTUBE_PROFILE, "youtube")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+    return info
+
+
+@app.get("/api/youtube/cookies")
+def youtube_cookies_status(_: None = Depends(require_auth)):
+    path = config.DATA_DIR / "cookies.txt"
+    if not path.exists():
+        return {"present": False, "count": 0, "updated_at": 0}
+    lines = [ln for ln in path.read_text(encoding="utf-8", errors="replace").splitlines()
+             if ln.strip() and not ln.startswith("#")]
+    return {"present": True, "count": len(lines), "updated_at": path.stat().st_mtime}
+
+
 @app.get("/api/youtube/accounts")
 def youtube_accounts(_: None = Depends(require_auth)):
     accounts = []

@@ -689,6 +689,7 @@ async function openSettings() {
       $('tt-origin').textContent = tc.js_origin;
     } catch (_) {}
     renderTtAccounts();
+    renderYtCookieStatus();
     try { $('service-cmd').textContent = (await api('/api/system/service')).command; } catch (_) {}
     $('settings-modal').classList.remove('hidden');
   } catch (_) {}
@@ -744,6 +745,7 @@ async function connectTikTokApi() {
 
 let remoteAccountId = null;
 let remoteLogTimer = null;
+let remoteTarget = 'tiktok';
 
 async function openRemoteModal() {
   $('tt-remote-setup').classList.remove('hidden');
@@ -774,23 +776,8 @@ async function startRemoteBrowser() {
     const info = await api('/api/tiktok/session/start', {
       method: 'POST', body: JSON.stringify({ name }) });
     remoteAccountId = info.account_id;
-    // noVNC connects back through the dashboard's authenticated WebSocket
-    // bridge; host/port/encrypt must match the page we're served from.
-    const secure = window.location.protocol === 'https:';
-    const params = new URLSearchParams({
-      autoconnect: '1', resize: 'remote', reconnect: '1',
-      host: window.location.hostname,
-      port: window.location.port || (secure ? '443' : '80'),
-      encrypt: secure ? '1' : '0',
-      path: 'api/vnc/ws',
-      password: info.vnc_password,
-    });
-    const page = info.novnc_page || 'vnc.html';
-    $('tt-remote-frame').src = `/novnc/${page}?${params.toString()}`;
-    $('tt-vnc-info').textContent =
-      `Host: ${window.location.hostname}   Port: ${info.vnc_port}   Password: ${info.vnc_password}\n` +
-      `(the VNC port is bound to localhost — use an SSH tunnel: ` +
-      `ssh -L ${info.vnc_port}:localhost:${info.vnc_port} user@your-vps)`;
+    remoteTarget = 'tiktok';
+    mountRemoteFrame(info);
     $('tt-remote-setup').classList.add('hidden');
     $('tt-remote-live').classList.remove('hidden');
     $('tt-remote-log').textContent = '';
@@ -815,9 +802,10 @@ async function pollRemoteLogs() {
   });
   $('tt-remote-log').textContent = lines.join('\n');
   $('tt-remote-log').scrollTop = $('tt-remote-log').scrollHeight;
+  const site = (s.target === 'youtube') ? 'YouTube' : 'TikTok';
   $('tt-remote-hint').textContent = s.logged_in
-    ? `Logged in${s.username ? ' as ' + s.username : ''} — press Done to save the session.`
-    : 'Log into TikTok in the window above, then press Done.';
+    ? `Logged into ${site}${s.username ? ' as ' + s.username : ''} — press Done to save.`
+    : `Log into ${site} in the window above, then press Done.`;
   $('btn-remote-done').classList.toggle('primary', !!s.logged_in);
 }
 
@@ -841,7 +829,11 @@ async function stopRemoteBrowser(done) {
       ? `Connected${result.username ? ' as ' + result.username : ''} — ${result.cookie_count || 0} cookies saved.`
       : 'Session closed, but no TikTok login was detected.';
   }
+  if (done && remoteTarget === 'youtube') {
+    renderYtCookieStatus();
+  }
   remoteAccountId = null;
+  remoteTarget = 'tiktok';
   renderTtAccounts();
   loadMyChannels();
 }
@@ -955,6 +947,52 @@ async function saveTtAuto() {
   } catch (e) { msg.textContent = e.message; }
 }
 
+// --- YouTube download cookies (remote browser) -----------------------------
+
+async function renderYtCookieStatus() {
+  try {
+    const s = await api('/api/youtube/cookies');
+    $('yt-cookie-status').textContent = s.present
+      ? `✓ ${s.count} cookies stored — updated ${new Date(s.updated_at * 1000).toLocaleString()}`
+      : 'No YouTube cookies yet — downloads may be blocked.';
+  } catch (_) {}
+}
+
+async function openYoutubeCookieSession() {
+  remoteTarget = 'youtube';
+  $('tt-remote-setup').classList.add('hidden');
+  $('tt-remote-live').classList.remove('hidden');
+  $('tt-remote-log').textContent = '';
+  $('tt-remote-modal').classList.remove('hidden');
+  $('tt-remote-hint').textContent = 'Starting the remote browser…';
+  try {
+    const info = await api('/api/youtube/session/start', { method: 'POST' });
+    mountRemoteFrame(info);
+    stopRemoteLogPoll();
+    pollRemoteLogs();
+    remoteLogTimer = setInterval(pollRemoteLogs, 2000);
+  } catch (e) {
+    $('tt-remote-hint').textContent = e.message;
+  }
+}
+
+function mountRemoteFrame(info) {
+  const secure = window.location.protocol === 'https:';
+  const params = new URLSearchParams({
+    autoconnect: '1', resize: 'remote', reconnect: '1',
+    host: window.location.hostname,
+    port: window.location.port || (secure ? '443' : '80'),
+    encrypt: secure ? '1' : '0',
+    path: 'api/vnc/ws',
+    password: info.vnc_password,
+  });
+  $('tt-remote-frame').src = `/novnc/${info.novnc_page || 'vnc.html'}?${params.toString()}`;
+  $('tt-vnc-info').textContent =
+    `Host: ${window.location.hostname}   Port: ${info.vnc_port}   Password: ${info.vnc_password}\n` +
+    `(VNC is bound to localhost — SSH tunnel: ` +
+    `ssh -L ${info.vnc_port}:localhost:${info.vnc_port} user@your-vps)`;
+}
+
 async function connectGoogle() {
   try {
     const { url } = await api('/api/youtube/auth-url');
@@ -1045,6 +1083,7 @@ $('btn-save-auto').addEventListener('click', saveAuto);
 $('yt-cadence').addEventListener('change', toggleCadenceFields);
 $('yt-selection').addEventListener('change', toggleSelectionFields);
 $('btn-connect-google').addEventListener('click', connectGoogle);
+$('btn-youtube-cookies').addEventListener('click', openYoutubeCookieSession);
 $('btn-connect-tiktok').addEventListener('click', openRemoteModal);
 $('btn-connect-tiktok-api').addEventListener('click', connectTikTokApi);
 $('btn-connect-tiktok-cookies').addEventListener('click', () => $('tt-cookie-modal').classList.remove('hidden'));

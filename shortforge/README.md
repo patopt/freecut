@@ -255,14 +255,21 @@ when you want.
 
 ## Troubleshooting
 
-**YouTube download fails ("not available on this app" / "sign in to confirm").**
-YouTube blocks many downloads from datacenter/VPS IPs. Two fixes:
+**YouTube download fails ("Sign in to confirm you're not a bot" / "not
+available on this app").** YouTube blocks downloads from datacenter/VPS IPs
+unless you're signed in. Fix it in one click:
 
-1. Make sure yt-dlp is current: `pip install -U yt-dlp` (in the venv).
-2. Provide cookies from a logged-in account. Export your YouTube cookies as a
-   Netscape `cookies.txt` (e.g. the "Get cookies.txt LOCALLY" browser
-   extension), then place the file at `data/cookies.txt` — ShortForge picks it
-   up automatically. This is the reliable fix for login/bot-check gating.
+**Settings → YouTube / Google accounts → 🖥 Log into YouTube (remote browser).**
+A real Chromium opens on the VPS inside the dashboard; sign into your Google
+account, press **Done**, and the cookies are exported automatically to
+`data/cookies.txt` — the file yt-dlp and the channel scanner already read. The
+panel then shows how many cookies are stored and when. Re-run it whenever
+downloads start failing again (cookies expire after a while).
+
+Also make sure yt-dlp is current: `pip install -U yt-dlp` (in the venv).
+
+You can still drop a `cookies.txt` at `data/cookies.txt` by hand (e.g. from the
+"Get cookies.txt LOCALLY" extension) if you prefer.
 
 ## ⚖️ Legal
 
