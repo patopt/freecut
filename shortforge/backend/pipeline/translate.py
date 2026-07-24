@@ -63,6 +63,38 @@ def _parse_array(text: str, n: int) -> Optional[list[str]]:
     return out + [""] * (n - len(out))
 
 
+def translate_texts(
+    texts: list[str], target_lang: str, *, api_key: str, model: str,
+) -> list[str]:
+    """Translate arbitrary texts (e.g. title, description). Best-effort."""
+    non_empty = [t for t in texts if t.strip()]
+    if not api_key or not non_empty:
+        return texts
+    lang_name = LANGUAGE_NAMES.get(target_lang, target_lang)
+    lines = "\n".join(f"{i + 1}. {t.strip() or '(empty)'}" for i, t in enumerate(texts))
+    prompt = (
+        f"Translate each numbered item into natural {lang_name}. Keep the same "
+        f"number of items ({len(texts)}) in order. Return ONLY a JSON array of "
+        f"{len(texts)} strings.\n\nITEMS:\n{lines}"
+    )
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(
+            model=model, contents=prompt[:60_000],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json", temperature=0.3),
+        )
+        parsed = _parse_array(resp.text or "", len(texts))
+        if parsed is None:
+            return texts
+        return [p if p.strip() else texts[i] for i, p in enumerate(parsed)]
+    except Exception:  # noqa: BLE001
+        return texts
+
+
 def translate_segments(
     segments: list[Segment], target_lang: str, *, api_key: str, model: str,
 ) -> tuple[list[str], Optional[str]]:

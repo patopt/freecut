@@ -20,7 +20,8 @@ def download_source(url: str, job_id: str, on_progress: ProgressCb) -> dict:
     if os.path.exists(url):
         src = Path(url)
         on_progress(1.0, "Local file")
-        return {"path": str(src), "title": src.stem, "duration": _probe_duration(src)}
+        return {"path": str(src), "title": src.stem, "duration": _probe_duration(src),
+                "description": "", "tags": []}
 
     import yt_dlp
 
@@ -36,7 +37,8 @@ def download_source(url: str, job_id: str, on_progress: ProgressCb) -> dict:
             on_progress(1.0, "Download finished, muxing…")
 
     ydl_opts = {
-        "format": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        # height<=1920 so vertical shorts (1080x1920) aren't excluded.
+        "format": "bestvideo[height<=1920][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "merge_output_format": "mp4",
         "outtmpl": outtmpl,
         "noplaylist": True,
@@ -71,10 +73,13 @@ def download_source(url: str, job_id: str, on_progress: ProgressCb) -> dict:
             raise RuntimeError("Download produced no file")
         path = candidates[0]
 
+    tags = info.get("tags") or info.get("categories") or []
     return {
         "path": str(path),
         "title": info.get("title") or path.stem,
         "duration": float(info.get("duration") or _probe_duration(path)),
+        "description": info.get("description") or "",
+        "tags": [str(t) for t in tags] if isinstance(tags, list) else [],
     }
 
 

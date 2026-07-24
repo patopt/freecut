@@ -290,8 +290,43 @@ async def create_dub(short_id: str, request: Request, _: None = Depends(require_
     lang = str(body.get("lang", "")).strip()
     if lang not in translate_mod.LANGUAGE_NAMES:
         raise HTTPException(status_code=400, detail="Unsupported language")
-    did = db.create_dub(short_id, lang)
+    dest = str(body.get("dest_channel_id", "")).strip()
+    if dest and not db.get_my_channel(dest):
+        raise HTTPException(status_code=400, detail="Unknown destination channel")
+    did = db.create_dub(short_id, lang, dest)
     return {"id": did}
+
+
+# --- COPY mode: my channels (dubbing destinations) --------------------------
+
+@app.post("/api/my-channels")
+async def add_my_channel(request: Request, _: None = Depends(require_auth)):
+    body = await request.json()
+    name = str(body.get("name", "")).strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Missing name")
+    return {"id": db.create_my_channel(name)}
+
+
+@app.get("/api/my-channels")
+def get_my_channels(_: None = Depends(require_auth)):
+    return {"channels": db.list_my_channels()}
+
+
+@app.get("/api/my-channels/{channel_id}")
+def my_channel_detail(channel_id: str, _: None = Depends(require_auth)):
+    ch = db.get_my_channel(channel_id)
+    if not ch:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {**ch, "dubs": db.list_dubs_for_dest(channel_id)}
+
+
+@app.delete("/api/my-channels/{channel_id}")
+def delete_my_channel(channel_id: str, _: None = Depends(require_auth)):
+    if not db.get_my_channel(channel_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete_my_channel(channel_id)
+    return {"ok": True}
 
 
 @app.get("/api/dubs/{dub_id}")

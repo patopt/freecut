@@ -46,7 +46,6 @@
           <button id="btn-create" class="btn primary block">Generate shorts</button>
           <div id="create-error" class="error"></div>
         </div>
-
         <h2 class="section-title">Your videos</h2>
         <div id="jobs" class="jobs"></div>
       </section>
@@ -60,10 +59,7 @@
             <span id="detail-message" class="muted"></span>
           </div>
           <div class="progress"><div id="detail-bar" class="progress-bar"></div></div>
-          <details class="log-wrap">
-            <summary>Live log</summary>
-            <pre id="detail-log" class="log"></pre>
-          </details>
+          <details class="log-wrap"><summary>Live log</summary><pre id="detail-log" class="log"></pre></details>
         </div>
         <h2 class="section-title">Generated shorts</h2>
         <div id="shorts" class="shorts-grid"></div>
@@ -72,49 +68,79 @@
 
     <!-- ============ COPY SCREEN ============ -->
     <section id="screen-copy" class="hidden">
-      <section id="view-channels">
-        <div class="card">
-          <h2>Add a channel</h2>
-          <input type="text" id="channel-url" placeholder="YouTube channel URL or @handle…" />
-          <button id="btn-add-channel" class="btn primary block">Add channel</button>
-          <div id="channel-error" class="error"></div>
-        </div>
-        <h2 class="section-title">Channels</h2>
-        <div id="channels" class="jobs"></div>
-      </section>
+      <nav class="subtabs">
+        <button class="subtab active" data-sub="sources">📥 Sources</button>
+        <button class="subtab" data-sub="mine">📺 Mes chaînes</button>
+      </nav>
 
-      <section id="view-channel" class="hidden">
-        <button id="btn-channel-back" class="btn ghost">← Back</button>
-        <div class="card">
-          <div class="channel-head">
-            <h2 id="channel-name">…</h2>
-            <div class="channel-actions">
-              <button id="btn-refresh-channel" class="icon-btn" title="Refresh">⟳</button>
-              <button id="btn-delete-channel" class="icon-btn" title="Delete">🗑</button>
-            </div>
+      <!-- ---- SOURCES ---- -->
+      <div id="sub-sources">
+        <section id="view-channels">
+          <div class="card">
+            <h2>Add a source channel</h2>
+            <input type="text" id="channel-url" placeholder="YouTube channel URL or @handle…" />
+            <button id="btn-add-channel" class="btn primary block">Add channel</button>
+            <div id="channel-error" class="error"></div>
           </div>
-          <span id="channel-status" class="muted"></span>
-        </div>
-        <h2 class="section-title">Shorts</h2>
-        <div id="cshorts" class="shorts-grid"></div>
-      </section>
+          <h2 class="section-title">Source channels</h2>
+          <div id="channels" class="jobs"></div>
+        </section>
+
+        <section id="view-channel" class="hidden">
+          <button id="btn-channel-back" class="btn ghost">← Back</button>
+          <div class="card">
+            <div class="channel-head">
+              <h2 id="channel-name">…</h2>
+              <div class="channel-actions">
+                <button id="btn-refresh-channel" class="icon-btn" title="Refresh">⟳</button>
+                <button id="btn-delete-channel" class="icon-btn" title="Delete">🗑</button>
+              </div>
+            </div>
+            <span id="channel-status" class="muted"></span>
+          </div>
+          <h2 class="section-title">Shorts</h2>
+          <div id="cshorts" class="shorts-grid"></div>
+        </section>
+      </div>
+
+      <!-- ---- MES CHAINES ---- -->
+      <div id="sub-mine" class="hidden">
+        <section id="view-mychannels">
+          <div class="card">
+            <h2>Create a channel</h2>
+            <input type="text" id="mychannel-name" placeholder="Channel name (e.g. My French Clips)…" />
+            <button id="btn-add-mychannel" class="btn primary block">Create channel</button>
+            <div id="mychannel-error" class="error"></div>
+          </div>
+          <h2 class="section-title">My channels</h2>
+          <div id="mychannels" class="jobs"></div>
+        </section>
+
+        <section id="view-mychannel" class="hidden">
+          <button id="btn-mychannel-back" class="btn ghost">← Back</button>
+          <div class="card">
+            <div class="channel-head">
+              <h2 id="mychannel-name-h">…</h2>
+              <button id="btn-delete-mychannel" class="icon-btn" title="Delete">🗑</button>
+            </div>
+            <span id="mychannel-status" class="muted"></span>
+          </div>
+          <h2 class="section-title">Translated videos</h2>
+          <div id="mydubs" class="shorts-grid"></div>
+        </section>
+      </div>
     </section>
   </main>
 
   <!-- SETTINGS MODAL -->
   <div id="settings-modal" class="modal hidden">
     <div class="modal-card">
-      <div class="modal-head">
-        <h2>Settings</h2>
-        <button id="btn-close-settings" class="icon-btn">✕</button>
-      </div>
+      <div class="modal-head"><h2>Settings</h2><button id="btn-close-settings" class="icon-btn">✕</button></div>
       <label>Gemini API key
         <input type="password" id="set-gemini-key" placeholder="Leave blank to keep current" />
         <small id="gemini-status" class="muted"></small>
       </label>
-      <label>Gemini model
-        <input type="text" id="set-gemini-model" placeholder="gemini-2.5-pro" />
-      </label>
+      <label>Gemini model<input type="text" id="set-gemini-model" placeholder="gemini-2.5-pro" /></label>
       <label>Whisper model
         <select id="set-whisper">
           <option>tiny</option><option>base</option><option selected>small</option>
@@ -126,26 +152,37 @@
         <small id="ngrok-status" class="muted"></small>
       </label>
       <hr />
-      <label>Change dashboard password
-        <input type="password" id="set-password" placeholder="New password (optional)" />
-      </label>
+      <label>Change dashboard password<input type="password" id="set-password" placeholder="New password (optional)" /></label>
       <button id="btn-save-settings" class="btn primary block">Save settings</button>
       <div id="settings-msg" class="muted"></div>
     </div>
   </div>
 
-  <!-- LANGUAGE PICKER MODAL (for dubbing) -->
+  <!-- LANGUAGE + DESTINATION PICKER MODAL -->
   <div id="lang-modal" class="modal hidden">
     <div class="modal-card">
-      <div class="modal-head">
-        <h2>Translate &amp; dub</h2>
-        <button id="btn-close-lang" class="icon-btn">✕</button>
-      </div>
-      <p class="muted">Pick the language to dub this short into.</p>
-      <label>Language
-        <select id="lang-select"></select>
-      </label>
+      <div class="modal-head"><h2>Translate &amp; dub</h2><button id="btn-close-lang" class="icon-btn">✕</button></div>
+      <label>Language<select id="lang-select"></select></label>
+      <label>Send to my channel<select id="dest-select"><option value="">— None —</option></select></label>
       <button id="btn-confirm-lang" class="btn primary block">Start translation</button>
+    </div>
+  </div>
+
+  <!-- DUB DETAIL MODAL (progress, log, metadata) -->
+  <div id="dub-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><h2 id="dub-modal-title">Dub</h2><button id="btn-close-dub" class="icon-btn">✕</button></div>
+      <div class="detail-meta">
+        <span id="dub-status" class="badge"></span>
+        <span id="dub-message" class="muted"></span>
+      </div>
+      <div class="progress"><div id="dub-bar" class="progress-bar"></div></div>
+      <div id="dub-actions" class="dub-actions-row hidden">
+        <button id="dub-play" class="btn primary">▶ Play</button>
+        <a id="dub-dl" class="btn" download>Download</a>
+      </div>
+      <div id="dub-meta"></div>
+      <details class="log-wrap" open><summary>Log</summary><pre id="dub-log" class="log"></pre></details>
     </div>
   </div>
 

@@ -34,6 +34,11 @@ def run_dub(dub_id: str) -> None:
             short["url"], f"dub_{dub_id}",
             lambda f, m: db.update_dub(dub_id, progress=int(2 + 23 * f), message=m),
         )
+        # Capture the original title, description and tags for reuse.
+        tags_str = ", ".join(src.get("tags", []))
+        db.update_dub(dub_id, title=src.get("title", ""),
+                      description=src.get("description", ""), tags=tags_str)
+        db.append_dub_log(dub_id, f"Downloaded ({src['duration']:.0f}s), {len(src.get('tags', []))} tags")
 
         # 2. Transcribe --------------------------------------------------------
         db.update_dub(dub_id, status="transcribing", stage="Transcribing", progress=25)
@@ -48,13 +53,19 @@ def run_dub(dub_id: str) -> None:
 
         # 3. Translate ---------------------------------------------------------
         db.update_dub(dub_id, status="translating", stage="Translating", progress=58)
+        api_key = db.effective("gemini_api_key")
+        model = db.effective("gemini_model") or "gemini-2.5-pro"
         translations, note = translate.translate_segments(
-            tr.segments, lang,
-            api_key=db.effective("gemini_api_key"),
-            model=db.effective("gemini_model") or "gemini-2.5-pro",
+            tr.segments, lang, api_key=api_key, model=model,
         )
         if note:
             db.append_dub_log(dub_id, note)
+        # Also translate the title + description for re-posting.
+        tr_title, tr_desc = translate.translate_texts(
+            [src.get("title", ""), src.get("description", "")],
+            lang, api_key=api_key, model=model,
+        )
+        db.update_dub(dub_id, tr_title=tr_title, tr_description=tr_desc)
 
         # 4. TTS (timed) -------------------------------------------------------
         db.update_dub(dub_id, status="dubbing", stage="Generating voice", progress=66)

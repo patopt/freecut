@@ -31,7 +31,11 @@ The dashboard has two tabs:
   each translated segment starts at the same timestamp as the original, sped up
   to fit its slot so the dub stays in sync with the picture. Finished dubs play
   and download right from the short. A **⟳ refresh** button re-scans the channel
-  for new shorts.
+  for new shorts. Tap any dub chip to open a **detail view** with live progress,
+  the full log (so failures are visible), and the retrieved + translated title,
+  description and tags. Under **📺 Mes chaînes** you create your own named
+  channels and send translated videos to them, so each dub lands, ready, in the
+  destination channel you picked when translating.
 
 ## What it does (Clip mode)
 

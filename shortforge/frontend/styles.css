@@ -173,9 +173,29 @@ label input, label select { margin-top: 6px; }
 }
 .tab.active { background: var(--surface-2); color: var(--text); border-color: var(--primary); }
 
+/* Sub tabs (inside Copy) */
+.subtabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.subtab {
+  flex: 1; padding: 9px; border-radius: 10px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--muted); font-size: 0.88rem; font-weight: 600;
+}
+.subtab.active { background: var(--surface-2); color: var(--text); border-color: var(--accent); }
+
 /* Channel detail */
 .channel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .channel-actions { display: flex; gap: 8px; }
+
+/* Dub detail modal */
+.dub-actions-row { display: flex; gap: 10px; margin: 14px 0; }
+.dub-actions-row .btn { flex: 1; }
+.meta-block { margin-top: 12px; }
+.meta-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+.meta-val {
+  font-size: 0.85rem; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word;
+  max-height: 160px; overflow: auto;
+}
 
 /* Dub chips on a channel short */
 .dub-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; }

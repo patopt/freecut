@@ -113,9 +113,29 @@ def init_db() -> None:
                 updated_at  REAL NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_dubs_short ON dubs(short_id);
+
+            -- User-created destination channels for translated videos.
+            CREATE TABLE IF NOT EXISTS my_channels (
+                id         TEXT PRIMARY KEY,
+                name       TEXT NOT NULL,
+                created_at REAL NOT NULL
+            );
             """
         )
+        # Additive migrations for the dubs table (existing installs).
+        _ensure_column(c, "dubs", "dest_channel_id", "TEXT DEFAULT ''")
+        _ensure_column(c, "dubs", "title", "TEXT DEFAULT ''")
+        _ensure_column(c, "dubs", "description", "TEXT DEFAULT ''")
+        _ensure_column(c, "dubs", "tags", "TEXT DEFAULT ''")
+        _ensure_column(c, "dubs", "tr_title", "TEXT DEFAULT ''")
+        _ensure_column(c, "dubs", "tr_description", "TEXT DEFAULT ''")
         c.commit()
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, col: str, decl: str) -> None:
+    existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+    if col not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
 
 # --- settings ---------------------------------------------------------------
@@ -386,15 +406,15 @@ def get_channel_short(short_id: str) -> Optional[dict]:
 
 # --- dubs -------------------------------------------------------------------
 
-def create_dub(short_id: str, lang: str) -> str:
+def create_dub(short_id: str, lang: str, dest_channel_id: str = "") -> str:
     did = uuid.uuid4().hex[:12]
     now = time.time()
     with _lock:
         c = _connect()
         c.execute(
-            "INSERT INTO dubs(id, short_id, lang, status, created_at, updated_at) "
-            "VALUES(?,?,?,?,?,?)",
-            (did, short_id, lang, "queued", now, now),
+            "INSERT INTO dubs(id, short_id, lang, status, dest_channel_id, "
+            "created_at, updated_at) VALUES(?,?,?,?,?,?,?)",
+            (did, short_id, lang, "queued", dest_channel_id, now, now),
         )
         c.commit()
     return did
@@ -443,5 +463,63 @@ def list_all_dubs_in_progress() -> list[dict]:
     with _lock:
         rows = _connect().execute(
             "SELECT * FROM dubs WHERE status NOT IN ('done','error')"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# --- my channels (dubbing destinations) -------------------------------------
+
+def create_my_channel(name: str) -> str:
+    cid = uuid.uuid4().hex[:12]
+    with _lock:
+        c = _connect()
+        c.execute(
+            "INSERT INTO my_channels(id, name, created_at) VALUES(?,?,?)",
+            (cid, name, time.time()),
+        )
+        c.commit()
+    return cid
+
+
+def list_my_channels() -> list[dict]:
+    with _lock:
+        rows = _connect().execute(
+            "SELECT * FROM my_channels ORDER BY created_at DESC"
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        with _lock:
+            cnt = _connect().execute(
+                "SELECT COUNT(*) AS n FROM dubs WHERE dest_channel_id=? AND status='done'",
+                (d["id"],),
+            ).fetchone()["n"]
+        d["video_count"] = cnt
+        out.append(d)
+    return out
+
+
+def get_my_channel(channel_id: str) -> Optional[dict]:
+    with _lock:
+        row = _connect().execute(
+            "SELECT * FROM my_channels WHERE id=?", (channel_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_my_channel(channel_id: str) -> None:
+    with _lock:
+        c = _connect()
+        # Detach dubs from this destination (keep the dubs themselves).
+        c.execute("UPDATE dubs SET dest_channel_id='' WHERE dest_channel_id=?", (channel_id,))
+        c.execute("DELETE FROM my_channels WHERE id=?", (channel_id,))
+        c.commit()
+
+
+def list_dubs_for_dest(channel_id: str) -> list[dict]:
+    with _lock:
+        rows = _connect().execute(
+            "SELECT * FROM dubs WHERE dest_channel_id=? ORDER BY updated_at DESC",
+            (channel_id,),
         ).fetchall()
     return [dict(r) for r in rows]
