@@ -668,6 +668,16 @@ async function toggleStop() {
   }
 }
 
+async function clearQueues() {
+  if (!confirm('Delete ALL waiting, failed and canceled items (clips, dubs, uploads) and their files? Finished shorts and published videos are kept. This cannot be undone.')) return;
+  try {
+    const r = await api('/api/system/clear-queues', { method: 'POST' });
+    systemPaused = true; renderStopButton();
+    alert(`Cleared. Deleted: ${r.deleted_jobs} clips, ${r.deleted_dubs} dubs, ${r.deleted_publishes} uploads. System paused — press Resume when ready.`);
+    loadJobs();
+  } catch (e) { alert(e.message); }
+}
+
 // ===================== wire up =============================================
 
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => switchMode(t.dataset.mode)));
@@ -696,6 +706,7 @@ $('yt-cadence').addEventListener('change', toggleCadenceFields);
 $('yt-selection').addEventListener('change', toggleSelectionFields);
 $('btn-connect-google').addEventListener('click', connectGoogle);
 $('btn-stop').addEventListener('click', toggleStop);
+$('btn-clear-queues').addEventListener('click', clearQueues);
 
 $('btn-close-lang').addEventListener('click', () => $('lang-modal').classList.add('hidden'));
 $('btn-confirm-lang').addEventListener('click', confirmLang);

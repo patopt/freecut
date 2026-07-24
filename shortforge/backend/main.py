@@ -680,6 +680,31 @@ def resume(_: None = Depends(require_auth)):
     return {"paused": False}
 
 
+@app.post("/api/system/clear-queues")
+def clear_queues(_: None = Depends(require_auth)):
+    """Stop and DELETE everything waiting/failed/canceled (keeps finished work)."""
+    db.set_paused(True)
+    db.disable_all_auto()
+    job_states = ("queued", "canceled", "error")
+    dub_states = ("queued", "canceled", "error")
+    n_jobs = n_dubs = 0
+    for job in db.jobs_by_statuses(job_states):
+        shutil.rmtree(config.OUTPUT_DIR / job["id"], ignore_errors=True)
+        shutil.rmtree(config.WORK_DIR / job["id"], ignore_errors=True)
+        db.delete_job(job["id"])
+        n_jobs += 1
+    for d in db.dubs_by_statuses(dub_states):
+        for key in ("path", "thumb"):
+            if d.get(key):
+                Path(d[key]).unlink(missing_ok=True)
+        shutil.rmtree(config.WORK_DIR / f"dub_{d['id']}", ignore_errors=True)
+        db.delete_dub(d["id"])
+        n_dubs += 1
+    n_pubs = db.delete_publishes_by_statuses(("pending", "canceled", "error"))
+    return {"paused": True, "deleted_jobs": n_jobs, "deleted_dubs": n_dubs,
+            "deleted_publishes": n_pubs}
+
+
 @app.get("/api/system/service")
 def service_command(_: None = Depends(require_auth)):
     """Return the one-time command that installs the 24/7 systemd service."""

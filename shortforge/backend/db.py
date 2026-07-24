@@ -309,6 +309,31 @@ def cancel_pending_publishes() -> int:
         return cur.rowcount
 
 
+def jobs_by_statuses(statuses: tuple[str, ...]) -> list[dict]:
+    q = ",".join("?" * len(statuses))
+    with _lock:
+        rows = _connect().execute(
+            f"SELECT * FROM jobs WHERE status IN ({q})", statuses).fetchall()
+    return [_job_to_dict(r) for r in rows]
+
+
+def dubs_by_statuses(statuses: tuple[str, ...]) -> list[dict]:
+    q = ",".join("?" * len(statuses))
+    with _lock:
+        rows = _connect().execute(
+            f"SELECT * FROM dubs WHERE status IN ({q})", statuses).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_publishes_by_statuses(statuses: tuple[str, ...]) -> int:
+    q = ",".join("?" * len(statuses))
+    with _lock:
+        c = _connect()
+        cur = c.execute(f"DELETE FROM publish_queue WHERE status IN ({q})", statuses)
+        c.commit()
+        return cur.rowcount
+
+
 def disable_all_auto() -> int:
     with _lock:
         c = _connect()
