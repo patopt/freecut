@@ -158,6 +158,23 @@ def missing_deps() -> list[str]:
     return missing
 
 
+def _wait_for_display(timeout: float = 15.0) -> bool:
+    """Block until the X display answers (or the socket appears)."""
+    env = {**os.environ, "DISPLAY": DISPLAY}
+    sock = Path(f"/tmp/.X11-unix/X{DISPLAY.lstrip(':')}")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _have("xdpyinfo"):
+            probe = subprocess.run(["xdpyinfo"], env=env, capture_output=True, check=False)
+            if probe.returncode == 0:
+                return True
+        elif sock.exists():
+            time.sleep(0.5)
+            return True
+        time.sleep(0.4)
+    return sock.exists()
+
+
 def _port_open(port: int) -> bool:
     with socket.socket() as s:
         s.settimeout(0.4)
@@ -335,10 +352,12 @@ class SessionRunner(threading.Thread):
                     page.goto(self.start_url, wait_until="domcontentloaded", timeout=60000)
                 except Exception as exc:  # noqa: BLE001
                     self.log(f"Could not open {label} ({exc}); you can navigate manually", "warn")
-                if self.prefill.get("video"):
-                    self._prefill_upload(page)
+                # Signal readiness as soon as the page is up so the dashboard can
+                # display the browser; attaching the file happens after, with the
+                # user already watching, instead of behind a black screen.
                 self.ready.set()
                 if self.prefill.get("video"):
+                    self._prefill_upload(page)
                     self.log("Ready — check the caption and press Post in the window", "success")
                 else:
                     self.log(f"Waiting for you to log into {label}…")
@@ -591,9 +610,20 @@ def start_session(account_id: str, target: str = "tiktok", start_url: str = "",
 
     with _lock:
         # 1. Virtual display (kept across sessions)
-        if not _procs.get("xvfb"):
+        if not _procs.get("xvfb") or _procs["xvfb"].poll() is not None:
+            _procs.pop("xvfb", None)
             _spawn("xvfb", ["Xvfb", DISPLAY, "-screen", "0", SCREEN, "-ac", "-nolisten", "tcp"])
-            time.sleep(1.5)
+        # Wait until X actually answers, otherwise x11vnc attaches to nothing
+        # and the dashboard shows a black screen.
+        if not _wait_for_display():
+            raise RuntimeError(
+                "The virtual display never came up. Check that Xvfb is installed "
+                "(sudo apt install -y xvfb).")
+        # A grey root makes it obvious the stream is live before Chromium paints.
+        if _have("xsetroot"):
+            subprocess.run(["xsetroot", "-solid", "grey20"],
+                           env={**os.environ, "DISPLAY": DISPLAY},
+                           capture_output=True, check=False)
 
         # 2. VNC server on that display, localhost only
         pw_file = _write_vnc_passfile()

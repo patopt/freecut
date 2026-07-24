@@ -373,11 +373,23 @@ function renderYtItems(items) {
       views = ` · 👁 ${it.views_translated}${orig}`;
     }
     const dubState = it.dub_status && it.dub_status !== 'done' ? ` · dub: ${STAGE_LABEL[it.dub_status] || it.dub_status}` : '';
+    const canRetry = it.status === 'error' && it.dub_status === 'done';
     el.innerHTML = `<div class="job-info"><div class="job-title">${escapeHtml(it.title || 'Short')} <small class="muted">${it.lang.toUpperCase()}</small></div>
       <div class="job-sub">${STAGE_LABEL[it.status] || it.status} · ${when}${dubState}${views}${it.error ? ' · ' + escapeHtml(it.error) : ''}</div></div>
+      ${canRetry ? `<button class="btn small retry-btn">⟳ Retry</button>` : ''}
       <span class="badge ${cls}">${it.status}</span>`;
-    el.style.cursor = 'pointer';
-    el.addEventListener('click', () => {
+    const retry = el.querySelector('.retry-btn');
+    if (retry) {
+      retry.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        retry.disabled = true; retry.textContent = '…';
+        try { await api(`/api/publishes/${it.publish_id}/retry`, { method: 'POST' }); }
+        catch (err) { alert(err.message); }
+        reloadYtChannel();
+      });
+    }
+    el.querySelector('.job-info').style.cursor = 'pointer';
+    el.querySelector('.job-info').addEventListener('click', () => {
       if (it.yt_video_id) window.open(`https://youtu.be/${it.yt_video_id}`, '_blank');
       else if (it.dub_id) openDubModal(it.dub_id);  // inspect voice / log / errors
     });
@@ -976,11 +988,24 @@ function renderTtItems(items) {
     const needsHelp = it.status === 'error' || it.status === 'publishing';
     el.innerHTML = `<div class="job-info"><div class="job-title">${escapeHtml(it.title || 'Short')} <small class="muted">${(it.lang || '').toUpperCase()}</small></div>
       <div class="job-sub">${STAGE_LABEL[it.status] || it.status} · ${when}${dubState}${it.error ? ' · ' + escapeHtml(it.error) : ''}</div></div>
-      ${needsHelp && it.dub_status === 'done' ? `<button class="btn small manual-btn" data-pub="${it.publish_id}">🖥 Publish manually</button>` : ''}
+      ${needsHelp && it.dub_status === 'done' ? `<div class="row-actions">
+        <button class="btn small retry-btn" data-pub="${it.publish_id}">⟳ Retry</button>
+        <button class="btn small manual-btn" data-pub="${it.publish_id}">🖥 Manual</button>
+      </div>` : ''}
       <span class="badge ${cls}">${it.status}</span>`;
     const manual = el.querySelector('.manual-btn');
     if (manual) {
       manual.addEventListener('click', (e) => { e.stopPropagation(); openManualPublish(it.publish_id); });
+    }
+    const retry = el.querySelector('.retry-btn');
+    if (retry) {
+      retry.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        retry.disabled = true; retry.textContent = '…';
+        try { await api(`/api/publishes/${it.publish_id}/retry`, { method: 'POST' }); }
+        catch (err) { alert(err.message); }
+        reloadTtAccount();
+      });
     }
     if (it.dub_id) {
       el.querySelector('.job-info').style.cursor = 'pointer';
