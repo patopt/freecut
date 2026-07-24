@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ShortForge</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">⚡ ShortForge</div>
+    <div class="top-actions">
+      <button id="btn-settings" class="icon-btn" title="Settings">⚙️</button>
+      <button id="btn-logout" class="icon-btn" title="Log out">⎋</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- LIST VIEW -->
+    <section id="view-list">
+      <div class="card new-job">
+        <h2>New shorts</h2>
+        <input type="text" id="job-url" placeholder="Paste a YouTube URL…" />
+        <div class="options">
+          <label>Clips
+            <select id="opt-count">
+              <option>3</option><option selected>6</option><option>8</option><option>10</option><option>12</option>
+            </select>
+          </label>
+          <label>Reframe
+            <select id="opt-reframe">
+              <option value="face" selected>Face tracking</option>
+              <option value="center">Center crop</option>
+            </select>
+          </label>
+          <label class="switch-row">
+            <input type="checkbox" id="opt-captions" checked /> Captions
+          </label>
+        </div>
+        <button id="btn-create" class="btn primary block">Generate shorts</button>
+        <div id="create-error" class="error"></div>
+      </div>
+
+      <h2 class="section-title">Your videos</h2>
+      <div id="jobs" class="jobs"></div>
+    </section>
+
+    <!-- DETAIL VIEW -->
+    <section id="view-detail" class="hidden">
+      <button id="btn-back" class="btn ghost">← Back</button>
+      <div class="card">
+        <h2 id="detail-title">…</h2>
+        <div class="detail-meta">
+          <span id="detail-status" class="badge"></span>
+          <span id="detail-message" class="muted"></span>
+        </div>
+        <div class="progress"><div id="detail-bar" class="progress-bar"></div></div>
+        <details class="log-wrap">
+          <summary>Live log</summary>
+          <pre id="detail-log" class="log"></pre>
+        </details>
+      </div>
+      <h2 class="section-title">Generated shorts</h2>
+      <div id="shorts" class="shorts-grid"></div>
+    </section>
+  </main>
+
+  <!-- SETTINGS MODAL -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Settings</h2>
+        <button id="btn-close-settings" class="icon-btn">✕</button>
+      </div>
+      <label>Gemini API key
+        <input type="password" id="set-gemini-key" placeholder="Leave blank to keep current" />
+        <small id="gemini-status" class="muted"></small>
+      </label>
+      <label>Gemini model
+        <input type="text" id="set-gemini-model" placeholder="gemini-2.5-pro" />
+      </label>
+      <label>Whisper model
+        <select id="set-whisper">
+          <option>tiny</option><option>base</option><option selected>small</option>
+          <option>medium</option><option>large-v3</option>
+        </select>
+      </label>
+      <label>ngrok auth token
+        <input type="password" id="set-ngrok" placeholder="Leave blank to keep current" />
+        <small id="ngrok-status" class="muted"></small>
+      </label>
+      <hr />
+      <label>Change dashboard password
+        <input type="password" id="set-password" placeholder="New password (optional)" />
+      </label>
+      <button id="btn-save-settings" class="btn primary block">Save settings</button>
+      <div id="settings-msg" class="muted"></div>
+    </div>
+  </div>
+
+  <!-- VIDEO PLAYER MODAL -->
+  <div id="player-modal" class="modal hidden">
+    <div class="player-card">
+      <button id="btn-close-player" class="icon-btn player-close">✕</button>
+      <video id="player-video" controls playsinline></video>
+      <a id="player-download" class="btn primary block" download>Download</a>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

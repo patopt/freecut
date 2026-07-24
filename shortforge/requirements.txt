@@ -1,0 +1,16 @@
+# Web server
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+itsdangerous==2.2.0
+pydantic==2.10.4
+
+# Pipeline
+yt-dlp==2025.6.30
+faster-whisper==1.1.0
+google-genai==0.8.0
+opencv-python-headless==4.11.0.86
+numpy==2.2.1
+
+# Optional public tunnel (used by run.sh --tunnel)
+pyngrok==7.2.3

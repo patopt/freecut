@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ShortForge — Sign in</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <div class="logo">⚡ ShortForge</div>
+    <p class="muted">Sign in to your dashboard</p>
+    <form id="login-form">
+      <input type="password" id="password" placeholder="Password" autocomplete="current-password" required />
+      <button type="submit" class="btn primary block">Sign in</button>
+      <div id="login-error" class="error"></div>
+    </form>
+  </main>
+  <script>
+    const form = document.getElementById('login-form');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = document.getElementById('login-error');
+      err.textContent = '';
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: document.getElementById('password').value }),
+      });
+      if (res.ok) {
+        window.location.href = '/';
+      } else {
+        err.textContent = 'Wrong password.';
+      }
+    });
+  </script>
+</body>
+</html>
