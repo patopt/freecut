@@ -48,7 +48,9 @@ source.mp4 ──► faster-whisper ──► word-level transcript
 
 ## Requirements
 
-- Ubuntu/Debian VPS (or any Linux with `apt`), Python ≥ 3.10.
+- Ubuntu/Debian VPS (or any Linux with `apt`). **Python 3.10–3.12** — the ML
+  wheels have no binaries for 3.13+ yet, so `setup.sh` auto-installs 3.12 if
+  your system Python is newer. **No GPU required** (runs fully on CPU).
 - `ffmpeg` (installed automatically by `setup.sh`).
 - A **Google Gemini API key** (for the smart highlight selection).
 - CPU is fine (Whisper runs int8). A GPU speeds up transcription if present.

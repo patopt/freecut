@@ -11,20 +11,53 @@ info()  { echo -e "${BOLD}${GREEN}==>${RESET} $*"; }
 warn()  { echo -e "${BOLD}${YELLOW}!! ${RESET} $*"; }
 
 # --- 1. System packages -----------------------------------------------------
+SUDO=""
+[ "$(id -u)" -ne 0 ] && SUDO="sudo"
+
 if command -v apt-get >/dev/null 2>&1; then
-  info "Installing system packages (ffmpeg, python3-venv, git)..."
-  SUDO=""
-  [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+  info "Installing system packages (ffmpeg, fonts, git)..."
   $SUDO apt-get update -y
-  $SUDO apt-get install -y ffmpeg python3 python3-venv python3-pip git fonts-dejavu-core
+  $SUDO apt-get install -y ffmpeg git fonts-dejavu-core software-properties-common
 else
-  warn "apt-get not found. Make sure ffmpeg and python3 (>=3.10) are installed."
+  warn "apt-get not found. Make sure ffmpeg and Python 3.10-3.12 are installed."
 fi
 
-# --- 2. Python virtual environment -----------------------------------------
+# --- 2. Pick a compatible Python (3.10-3.12) -------------------------------
+# The ML wheels (ctranslate2, onnxruntime, opencv, pydantic-core) do not yet
+# ship prebuilt binaries for Python 3.13+, and building them from source fails
+# (this is the pyo3 "interpreter version 3.14 is newer than PyO3's maximum"
+# error). So we require 3.10-3.12 and install 3.12 via deadsnakes if needed.
+PY=""
+for cand in python3.12 python3.11 python3.10; do
+  if command -v "$cand" >/dev/null 2>&1; then PY="$cand"; break; fi
+done
+
+if [ -z "$PY" ] && command -v apt-get >/dev/null 2>&1; then
+  info "No suitable Python found — installing Python 3.12 (deadsnakes PPA)..."
+  $SUDO add-apt-repository -y ppa:deadsnakes/ppa || true
+  $SUDO apt-get update -y
+  $SUDO apt-get install -y python3.12 python3.12-venv python3.12-dev
+  PY="python3.12"
+fi
+
+if [ -z "$PY" ]; then
+  warn "Could not find or install Python 3.10-3.12. Install it manually and re-run."
+  exit 1
+fi
+info "Using $PY ($($PY --version 2>&1))"
+
+# --- 3. Python virtual environment -----------------------------------------
+# Recreate the venv if it exists but uses an unsupported Python version.
+if [ -d venv ]; then
+  CURV="$(venv/bin/python -c 'import sys;print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo none)"
+  case "$CURV" in
+    3.10|3.11|3.12) : ;;
+    *) warn "Existing venv uses Python $CURV — recreating with $PY."; rm -rf venv ;;
+  esac
+fi
 if [ ! -d venv ]; then
   info "Creating Python virtual environment (venv/)..."
-  python3 -m venv venv
+  "$PY" -m venv venv
 fi
 # shellcheck disable=SC1091
 source venv/bin/activate
@@ -33,7 +66,7 @@ info "Upgrading pip and installing Python dependencies (this can take a few minu
 pip install --upgrade pip wheel
 pip install -r requirements.txt
 
-# --- 3. .env ----------------------------------------------------------------
+# --- 4. .env ----------------------------------------------------------------
 if [ ! -f .env ]; then
   info "Creating .env from template..."
   cp .env.example .env
