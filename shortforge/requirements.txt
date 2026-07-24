@@ -3,7 +3,8 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 python-multipart==0.0.20
 itsdangerous==2.2.0
-pydantic==2.10.4
+# >=2.10.6 required by tiktok-uploader; pinning 2.10.4 broke resolution.
+pydantic>=2.10.6
 
 # Pipeline
 # Kept unpinned on purpose: YouTube breaks older yt-dlp releases constantly,
