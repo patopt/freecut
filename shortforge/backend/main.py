@@ -972,6 +972,26 @@ async def vpn_login_url(_: None = Depends(require_auth)):
     return {"url": url}
 
 
+@app.post("/api/vpn/session/start")
+async def vpn_session_start(_: None = Depends(require_auth)):
+    """Open the NordVPN login page in the remote browser and finish the login
+    automatically once the site hands back its nordvpn:// callback."""
+    if not vpn_mod.available():
+        raise HTTPException(status_code=400, detail="NordVPN CLI is not installed. Run ./setup.sh")
+    try:
+        url = await asyncio.to_thread(vpn_mod.login_url)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not url:
+        raise HTTPException(status_code=400, detail="Already logged in to NordVPN")
+    try:
+        info = await asyncio.to_thread(
+            tiktok_session_mod.start_session, "nordvpn", "nordvpn", url)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+    return info
+
+
 @app.post("/api/vpn/login-token")
 async def vpn_login_token(request: Request, _: None = Depends(require_auth)):
     body = await request.json()

@@ -80,6 +80,14 @@ def login_url() -> str:
     return ""
 
 
+def complete_login(callback_url: str) -> str:
+    """Finish the browser login using the nordvpn:// callback link."""
+    code, out = _run(["login", "--callback", callback_url.strip()], timeout=90)
+    if code != 0:
+        raise RuntimeError(out.strip() or "Callback login failed")
+    return out.strip()
+
+
 def login_with_token(token: str) -> str:
     code, out = _run(["login", "--token", token.strip()], timeout=90)
     if code != 0:

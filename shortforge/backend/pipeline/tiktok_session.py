@@ -46,6 +46,14 @@ TARGETS = {
         "session_cookies": ("SID", "__Secure-3PSID", "LOGIN_INFO"),
         "label": "YouTube",
     },
+    # NordVPN doesn't use cookies: we watch for the nordvpn:// callback link the
+    # site produces after sign-in and hand it to the CLI.
+    "nordvpn": {
+        "url": "https://nordvpn.com/",
+        "domain": "nordaccount",
+        "session_cookies": (),
+        "label": "NordVPN",
+    },
 }
 LOGIN_URL = TARGETS["tiktok"]["url"]
 YOUTUBE_PROFILE = "youtube"
@@ -216,11 +224,14 @@ def _spawn(name: str, cmd: list[str], env: dict | None = None) -> subprocess.Pop
 class SessionRunner(threading.Thread):
     """Owns the headful browser for one account and reports what it sees."""
 
-    def __init__(self, account_id: str, target: str = "tiktok") -> None:
+    def __init__(self, account_id: str, target: str = "tiktok",
+                 start_url: str = "") -> None:
         super().__init__(daemon=True, name=f"session-{target}-{account_id}")
         self.account_id = account_id
         self.target = target if target in TARGETS else "tiktok"
         self.cfg = TARGETS[self.target]
+        self.start_url = start_url or self.cfg["url"]
+        self.callback_url = ""
         self.logs: list[dict] = []
         self.logged_in = False
         self.username = ""
@@ -280,8 +291,10 @@ class SessionRunner(threading.Thread):
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
                 label = self.cfg["label"]
                 self.log(f"Browser ready — opening {label}")
+                if self.target == "nordvpn":
+                    self._watch_for_callback(page)
                 try:
-                    page.goto(self.cfg["url"], wait_until="domcontentloaded", timeout=60000)
+                    page.goto(self.start_url, wait_until="domcontentloaded", timeout=60000)
                 except Exception as exc:  # noqa: BLE001
                     self.log(f"Could not open {label} ({exc}); you can navigate manually", "warn")
                 self.ready.set()
@@ -289,6 +302,11 @@ class SessionRunner(threading.Thread):
 
                 # Watch the session until the user presses Done / Stop.
                 while not self._stop.is_set():
+                    if self.target == "nordvpn":
+                        if self._poll_nordvpn(page):
+                            break
+                        self._stop.wait(2.0)
+                        continue
                     try:
                         cookies = ctx.cookies()
                     except Exception:  # noqa: BLE001
@@ -314,7 +332,12 @@ class SessionRunner(threading.Thread):
                 except queue.Empty:
                     pass
 
-                if action == "save":
+                if action == "save" and self.target == "nordvpn":
+                    if self.logged_in:
+                        self.log("NordVPN is logged in — nothing else to store", "success")
+                    else:
+                        self.log("No NordVPN callback captured — login not completed", "warn")
+                elif action == "save":
                     self.log("Saving session…")
                     try:
                         cookies = [c for c in ctx.cookies()
@@ -342,14 +365,77 @@ class SessionRunner(threading.Thread):
                     ctx.close()
                 except Exception:  # noqa: BLE001
                     pass
-                if action == "save":
+                if action == "save" and self.target == "tiktok":
                     self.log("Profile saved — this account is ready to publish", "success")
+                elif action == "save":
+                    self.log("Done", "success")
         except Exception as exc:  # noqa: BLE001
             self.error = str(exc)
             self.log(f"Session error: {exc}", "error")
         finally:
             self.ready.set()
             self.finished.set()
+
+    def _watch_for_callback(self, page) -> None:
+        """Catch the nordvpn:// redirect the site fires right after sign-in."""
+        def on_request(request) -> None:
+            url = request.url or ""
+            if url.startswith("nordvpn://") and not self.callback_url:
+                self.callback_url = url
+        try:
+            page.on("request", on_request)
+            page.on("framenavigated",
+                    lambda frame: self._maybe_callback(getattr(frame, "url", "")))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _maybe_callback(self, url: str) -> None:
+        if url and url.startswith("nordvpn://") and not self.callback_url:
+            self.callback_url = url
+
+    def _poll_nordvpn(self, page) -> bool:
+        """Look for the callback link; finish the CLI login when we find it.
+
+        Returns True once the login is complete (or definitively failed).
+        """
+        if not self.callback_url:
+            try:
+                found = page.evaluate(
+                    "() => {"
+                    " const a = document.querySelector('a[href^=\"nordvpn://\"]');"
+                    " if (a) return a.href;"
+                    " const m = document.body ? document.body.innerHTML.match"
+                    "(/nordvpn:\\/\\/[^\"'\\s<>]+/) : null;"
+                    " return m ? m[0] : '';"
+                    "}")
+            except Exception:  # noqa: BLE001
+                found = ""
+            if found:
+                self.callback_url = found
+        if not self.callback_url:
+            return False
+
+        self.log("Login callback captured — finishing with the NordVPN CLI…", "success")
+        from . import vpn
+
+        try:
+            vpn.complete_login(self.callback_url)
+            self.logged_in = True
+            self.log("NordVPN login complete", "success")
+            st = vpn.status()
+            if st.get("logged_in"):
+                self.log("Account verified — connecting to a server…")
+                try:
+                    vpn.connect(None)
+                    st = vpn.status()
+                    self.log(f"Connected: {st.get('country') or 'server'} "
+                             f"{st.get('ip') and 'IP ' + st['ip'] or ''}".strip(), "success")
+                except Exception as exc:  # noqa: BLE001
+                    self.log(f"Connected to account but could not connect: {exc}", "warn")
+        except Exception as exc:  # noqa: BLE001
+            self.error = str(exc)
+            self.log(f"CLI login failed: {exc}", "error")
+        return True
 
     def _detect_username(self, page) -> None:
         """Best-effort: read the handle so the account gets a real name."""
@@ -398,7 +484,7 @@ def status() -> dict:
     }
 
 
-def start_session(account_id: str, target: str = "tiktok") -> dict:
+def start_session(account_id: str, target: str = "tiktok", start_url: str = "") -> dict:
     missing = missing_deps()
     blocking = [m for m in missing if m != "novnc"]
     if blocking:
@@ -432,7 +518,7 @@ def start_session(account_id: str, target: str = "tiktok") -> dict:
 
         # 3. Playwright-driven headful Chromium with this account's profile
         global _runner
-        _runner = SessionRunner(account_id, target)
+        _runner = SessionRunner(account_id, target, start_url)
         _runner.start()
 
     _runner.ready.wait(timeout=60)

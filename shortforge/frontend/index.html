@@ -362,20 +362,21 @@
       <p class="muted">YouTube and TikTok block datacenter IPs. When a download is blocked,
       ShortForge switches to another NordVPN server automatically and retries.</p>
       <div id="vpn-status" class="meta-val">…</div>
+      <button id="btn-vpn-remote" class="btn primary block">🖥 Log in to NordVPN (remote browser)</button>
       <div class="dub-actions-row">
-        <button id="btn-vpn-login" class="btn small primary">Log in to NordVPN</button>
         <button id="btn-vpn-rotate" class="btn small">Change server</button>
         <button id="btn-vpn-disconnect" class="btn small danger">Disconnect</button>
       </div>
-      <div id="vpn-login-box" class="hidden">
-        <p class="muted">Open this link, sign in, then come back — or paste an access token from
-        NordVPN → Services → NordVPN → Manual setup.</p>
+      <details class="log-wrap">
+        <summary>Other login methods</summary>
+        <button id="btn-vpn-login" class="btn small block">Get the login link</button>
         <div class="meta-val" id="vpn-login-url">…</div>
-        <label>Access token (alternative)
-          <input type="password" id="vpn-token" placeholder="Paste your NordVPN access token" />
+        <label>Access token
+          <input type="password" id="vpn-token" placeholder="NordVPN → Services → Manual setup" />
         </label>
         <button id="btn-vpn-token" class="btn small block">Log in with token</button>
-      </div>
+      </details>
+      <div id="vpn-login-box" class="hidden"></div>
       <label class="switch-row" style="margin-top:10px">
         <input type="checkbox" id="set-vpn-rotation" /> Auto-rotate server when blocked
       </label>

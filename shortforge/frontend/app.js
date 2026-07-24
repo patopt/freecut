@@ -804,10 +804,17 @@ async function pollRemoteLogs() {
   });
   $('tt-remote-log').textContent = lines.join('\n');
   $('tt-remote-log').scrollTop = $('tt-remote-log').scrollHeight;
-  const site = (s.target === 'youtube') ? 'YouTube' : 'TikTok';
-  $('tt-remote-hint').textContent = s.logged_in
-    ? `Logged into ${site}${s.username ? ' as ' + s.username : ''} — press Done to save.`
-    : `Log into ${site} in the window above, then press Done.`;
+  const SITE = { youtube: 'YouTube', nordvpn: 'NordVPN' };
+  const site = SITE[s.target] || 'TikTok';
+  if (s.target === 'nordvpn') {
+    $('tt-remote-hint').textContent = s.logged_in
+      ? 'NordVPN connected ✓ — you can close this window.'
+      : 'Sign into NordVPN above; the login finishes automatically.';
+  } else {
+    $('tt-remote-hint').textContent = s.logged_in
+      ? `Logged into ${site}${s.username ? ' as ' + s.username : ''} — press Done to save.`
+      : `Log into ${site} in the window above, then press Done.`;
+  }
   $('btn-remote-done').classList.toggle('primary', !!s.logged_in);
 }
 
@@ -833,6 +840,8 @@ async function stopRemoteBrowser(done) {
   }
   if (done && remoteTarget === 'youtube') {
     renderYtCookieStatus();
+  } else if (remoteTarget === 'nordvpn') {
+    renderVpnStatus();
   }
   remoteAccountId = null;
   remoteTarget = 'tiktok';
@@ -965,6 +974,24 @@ async function renderVpnStatus() {
     box.textContent = 'Logged in but not connected. Press "Change server".';
   }
   $('set-vpn-rotation').checked = !!s.rotation_enabled;
+}
+
+async function openVpnRemoteSession() {
+  remoteTarget = 'nordvpn';
+  $('tt-remote-setup').classList.add('hidden');
+  $('tt-remote-live').classList.remove('hidden');
+  $('tt-remote-log').textContent = '';
+  $('tt-remote-modal').classList.remove('hidden');
+  $('tt-remote-hint').textContent = 'Starting the remote browser…';
+  try {
+    const info = await api('/api/vpn/session/start', { method: 'POST' });
+    mountRemoteFrame(info);
+    stopRemoteLogPoll();
+    pollRemoteLogs();
+    remoteLogTimer = setInterval(pollRemoteLogs, 2000);
+  } catch (e) {
+    $('tt-remote-hint').textContent = e.message;
+  }
 }
 
 async function vpnLogin() {
@@ -1146,6 +1173,7 @@ $('yt-cadence').addEventListener('change', toggleCadenceFields);
 $('yt-selection').addEventListener('change', toggleSelectionFields);
 $('btn-connect-google').addEventListener('click', connectGoogle);
 $('btn-youtube-cookies').addEventListener('click', openYoutubeCookieSession);
+$('btn-vpn-remote').addEventListener('click', openVpnRemoteSession);
 $('btn-vpn-login').addEventListener('click', vpnLogin);
 $('btn-vpn-token').addEventListener('click', vpnLoginToken);
 $('btn-vpn-rotate').addEventListener('click', vpnRotate);
