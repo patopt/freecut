@@ -212,8 +212,7 @@ def _find_and_upload(page, video_path: str, caption: str, log: Log) -> None:
         pass
     if not _click_robust(host, page, post_selectors, log, "Post button"):
         raise RuntimeError(
-            "Could not press Post (TikTok's layout may have changed). "
-            "Use 'Publish manually' to finish it in the remote browser.")
+            "Could not press Post (TikTok's layout may have changed).")
 
     # Confirm it actually went through instead of assuming success.
     confirm_deadline = time.time() + 120
@@ -223,8 +222,7 @@ def _find_and_upload(page, video_path: str, caption: str, log: Log) -> None:
             return
         page.wait_for_timeout(3000)
     raise RuntimeError(
-        "Post was clicked but TikTok never confirmed it. Check the account, or "
-        "use 'Publish manually' to finish it in the remote browser.")
+        "Post was clicked but TikTok never confirmed it.")
 
 
 def post_video(account: dict, video_path: str, caption: str, log: Log = lambda _m: None) -> str:

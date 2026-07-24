@@ -285,7 +285,7 @@ class SessionRunner(threading.Thread):
         self.ready = threading.Event()
         self.finished = threading.Event()
         self.error = ""
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._commands: queue.Queue[str] = queue.Queue()
 
     # -- logging
@@ -297,7 +297,7 @@ class SessionRunner(threading.Thread):
     # -- lifecycle
     def request_stop(self, save: bool = True) -> None:
         self._commands.put("save" if save else "discard")
-        self._stop.set()
+        self._stop_event.set()
 
     def run(self) -> None:  # noqa: C901 - linear browser lifecycle
         try:
@@ -363,11 +363,11 @@ class SessionRunner(threading.Thread):
                     self.log(f"Waiting for you to log into {label}…")
 
                 # Watch the session until the user presses Done / Stop.
-                while not self._stop.is_set():
+                while not self._stop_event.is_set():
                     if self.target == "nordvpn":
                         if self._poll_nordvpn(page):
                             break
-                        self._stop.wait(2.0)
+                        self._stop_event.wait(2.0)
                         continue
                     try:
                         cookies = ctx.cookies()
@@ -386,7 +386,7 @@ class SessionRunner(threading.Thread):
                     elif not session_ok and self.logged_in:
                         self.logged_in = False
                         self.log("Session cookie disappeared (logged out?)", "warn")
-                    self._stop.wait(2.0)
+                    self._stop_event.wait(2.0)
 
                 action = "save"
                 try:

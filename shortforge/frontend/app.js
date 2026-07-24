@@ -860,10 +860,7 @@ async function pollRemoteLogs() {
   $('tt-remote-log').scrollTop = $('tt-remote-log').scrollHeight;
   const SITE = { youtube: 'YouTube', nordvpn: 'NordVPN' };
   const site = SITE[s.target] || 'TikTok';
-  if (remoteTarget === 'manual-tiktok') {
-    $('tt-remote-hint').textContent =
-      'Check the caption and press Post in the window, then click "I posted it".';
-  } else if (s.target === 'nordvpn') {
+  if (s.target === 'nordvpn') {
     $('tt-remote-hint').textContent = s.logged_in
       ? 'NordVPN connected ✓ — you can close this window.'
       : 'Sign into NordVPN above; the login finishes automatically.';
@@ -899,13 +896,6 @@ async function stopRemoteBrowser(done) {
     renderYtCookieStatus();
   } else if (remoteTarget === 'nordvpn') {
     renderVpnStatus();
-  } else if (remoteTarget === 'manual-tiktok' && manualPublishId) {
-    if (done) {
-      try { await api(`/api/publishes/${manualPublishId}/mark-published`, { method: 'POST' }); } catch (_) {}
-    }
-    manualPublishId = null;
-    $('btn-remote-done').textContent = '✓ Done';
-    reloadTtAccount();
   }
   remoteAccountId = null;
   remoteTarget = 'tiktok';
@@ -995,13 +985,8 @@ function renderTtItems(items) {
       <div class="job-sub">${STAGE_LABEL[it.status] || it.status} · ${when}${dubState}${it.error ? ' · ' + escapeHtml(it.error) : ''}</div></div>
       ${needsHelp && it.dub_status === 'done' ? `<div class="row-actions">
         <button class="btn small retry-btn" data-pub="${it.publish_id}">⟳ Retry</button>
-        <button class="btn small manual-btn" data-pub="${it.publish_id}">🖥 Manual</button>
       </div>` : ''}
       <span class="badge ${cls}">${it.status}</span>`;
-    const manual = el.querySelector('.manual-btn');
-    if (manual) {
-      manual.addEventListener('click', (e) => { e.stopPropagation(); openManualPublish(it.publish_id); });
-    }
     const retry = el.querySelector('.retry-btn');
     if (retry) {
       retry.addEventListener('click', async (e) => {
@@ -1060,30 +1045,6 @@ async function renderVpnStatus() {
     box.textContent = 'Logged in but not connected. Press "Change server".';
   }
   $('set-vpn-rotation').checked = !!s.rotation_enabled;
-}
-
-// --- manual TikTok publish (fallback) --------------------------------------
-
-let manualPublishId = null;
-
-async function openManualPublish(pubId) {
-  manualPublishId = pubId;
-  remoteTarget = 'manual-tiktok';
-  $('tt-remote-setup').classList.add('hidden');
-  $('tt-remote-live').classList.remove('hidden');
-  $('tt-remote-log').textContent = '';
-  $('tt-remote-modal').classList.remove('hidden');
-  $('tt-remote-hint').textContent = 'Opening TikTok with your video attached…';
-  $('btn-remote-done').textContent = '✓ I posted it';
-  try {
-    const info = await api(`/api/publishes/${pubId}/manual`, { method: 'POST' });
-    mountRemoteFrame(info);
-    stopRemoteLogPoll();
-    pollRemoteLogs();
-    remoteLogTimer = setInterval(pollRemoteLogs, 2000);
-  } catch (e) {
-    $('tt-remote-hint').textContent = e.message;
-  }
 }
 
 async function openVpnRemoteSession() {

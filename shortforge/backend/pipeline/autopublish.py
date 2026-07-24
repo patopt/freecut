@@ -147,7 +147,7 @@ def reap_stuck_publishes() -> None:
         if now - float(row.get("updated_at") or 0) > PUBLISH_TIMEOUT:
             db.update_publish(
                 row["id"], status="error",
-                error="Publishing timed out. Use 'Publish manually' to finish it.")
+                error="Publishing timed out. Press Retry to try again.")
 
 
 def _watchdog_loop() -> None:

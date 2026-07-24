@@ -53,7 +53,7 @@ def run_without_event_loop(fn: Callable[[], object], timeout: float = UPLOAD_TIM
     if thread.is_alive():
         raise TimeoutError(
             f"The browser upload did not finish within {int(timeout / 60)} minutes. "
-            "It was abandoned; retry or publish manually.")
+            "It was abandoned; press Retry to try again.")
     if "error" in box:
         raise box["error"]  # type: ignore[misc]
     return box.get("value")
