@@ -119,16 +119,23 @@ def run_dub(dub_id: str) -> None:
 
 
 def _mux(video_path: str, audio_path: Path, out_path: Path) -> None:
-    cmd = [
-        "ffmpeg", "-y",
+    common = [
+        "ffmpeg", "-y", "-nostats", "-loglevel", "error",
         "-i", video_path, "-i", str(audio_path),
         "-map", "0:v:0", "-map", "1:a:0",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "160k",
-        "-movflags", "+faststart", "-shortest",
-        str(out_path),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg mux failed: {proc.stderr[-800:]}")
+    tail = ["-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-shortest", str(out_path)]
+    # We only swap the audio, so copy the video stream (fast, avoids libx264
+    # failures). Fall back to a re-encode only if copy can't be muxed.
+    attempts = [
+        [*common, "-c:v", "copy", *tail],
+        [*common, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+         "-pix_fmt", "yuv420p", *tail],
+    ]
+    last_err = ""
+    for cmd in attempts:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            return
+        last_err = (proc.stderr or "").strip()
+    raise RuntimeError(f"ffmpeg mux failed: {last_err[-600:]}")

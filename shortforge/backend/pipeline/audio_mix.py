@@ -38,7 +38,8 @@ def add_background_music(
     common_tail = ["-map", "0:v", "-map", "[a]", "-c:v", "copy",
                    "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
                    "-shortest", str(out_path)]
-    base = ["ffmpeg", "-y", "-i", video_path, "-stream_loop", "-1", "-i", music_path]
+    base = ["ffmpeg", "-y", "-nostats", "-loglevel", "error",
+            "-i", video_path, "-stream_loop", "-1", "-i", music_path]
 
     attempts: list[str] = []
     if _has_audio(video_path):

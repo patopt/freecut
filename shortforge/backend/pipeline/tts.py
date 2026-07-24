@@ -194,7 +194,7 @@ def build_dub_track(
     filter_complex = ";".join(filters + [mix])
 
     cmd = [
-        "ffmpeg", "-y", *inputs,
+        "ffmpeg", "-y", "-nostats", "-loglevel", "error", *inputs,
         "-filter_complex", filter_complex,
         "-map", "[mix]",
         "-t", f"{max(video_duration, 0.5):.3f}",

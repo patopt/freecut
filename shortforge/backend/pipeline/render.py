@@ -30,7 +30,7 @@ def render_short(
         vf += f",subtitles={_escape_sub_path(ass_path)}"
 
     cmd = [
-        "ffmpeg", "-y",
+        "ffmpeg", "-y", "-nostats", "-loglevel", "error",
         "-ss", f"{start:.3f}", "-i", source_path,
         "-t", f"{duration:.3f}",
         "-vf", vf,
