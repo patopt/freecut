@@ -120,6 +120,13 @@ def init_db() -> None:
                 name       TEXT NOT NULL,
                 created_at REAL NOT NULL
             );
+            -- Uploaded background-music tracks.
+            CREATE TABLE IF NOT EXISTS music (
+                id         TEXT PRIMARY KEY,
+                name       TEXT NOT NULL,
+                path       TEXT NOT NULL,
+                created_at REAL NOT NULL
+            );
             """
         )
         # Additive migrations for the dubs table (existing installs).
@@ -129,6 +136,7 @@ def init_db() -> None:
         _ensure_column(c, "dubs", "tags", "TEXT DEFAULT ''")
         _ensure_column(c, "dubs", "tr_title", "TEXT DEFAULT ''")
         _ensure_column(c, "dubs", "tr_description", "TEXT DEFAULT ''")
+        _ensure_column(c, "dubs", "music_id", "TEXT DEFAULT ''")
         c.commit()
 
 
@@ -252,6 +260,24 @@ def delete_job(job_id: str) -> None:
         c = _connect()
         c.execute("DELETE FROM jobs WHERE id=?", (job_id,))
         c.commit()
+
+
+def delete_job_shorts(job_id: str) -> None:
+    with _lock:
+        c = _connect()
+        c.execute("DELETE FROM shorts WHERE job_id=?", (job_id,))
+        c.commit()
+
+
+def reset_job(job_id: str) -> None:
+    update_job(job_id, status="queued", progress=0, stage="", message="",
+               error="", num_shorts=0)
+
+
+def list_failed_jobs() -> list[dict]:
+    with _lock:
+        rows = _connect().execute("SELECT * FROM jobs WHERE status='error'").fetchall()
+    return [_job_to_dict(r) for r in rows]
 
 
 # --- shorts -----------------------------------------------------------------
@@ -406,18 +432,29 @@ def get_channel_short(short_id: str) -> Optional[dict]:
 
 # --- dubs -------------------------------------------------------------------
 
-def create_dub(short_id: str, lang: str, dest_channel_id: str = "") -> str:
+def create_dub(short_id: str, lang: str, dest_channel_id: str = "", music_id: str = "") -> str:
     did = uuid.uuid4().hex[:12]
     now = time.time()
     with _lock:
         c = _connect()
         c.execute(
             "INSERT INTO dubs(id, short_id, lang, status, dest_channel_id, "
-            "created_at, updated_at) VALUES(?,?,?,?,?,?,?)",
-            (did, short_id, lang, "queued", dest_channel_id, now, now),
+            "music_id, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)",
+            (did, short_id, lang, "queued", dest_channel_id, music_id, now, now),
         )
         c.commit()
     return did
+
+
+def reset_dub(dub_id: str) -> None:
+    update_dub(dub_id, status="queued", progress=0, stage="", message="", error="")
+
+
+def delete_dub(dub_id: str) -> None:
+    with _lock:
+        c = _connect()
+        c.execute("DELETE FROM dubs WHERE id=?", (dub_id,))
+        c.commit()
 
 
 def update_dub(dub_id: str, **fields: Any) -> None:
@@ -523,3 +560,34 @@ def list_dubs_for_dest(channel_id: str) -> list[dict]:
             (channel_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# --- music library ----------------------------------------------------------
+
+def add_music(name: str, path: str) -> str:
+    mid = uuid.uuid4().hex[:12]
+    with _lock:
+        c = _connect()
+        c.execute("INSERT INTO music(id, name, path, created_at) VALUES(?,?,?,?)",
+                  (mid, name, path, time.time()))
+        c.commit()
+    return mid
+
+
+def list_music() -> list[dict]:
+    with _lock:
+        rows = _connect().execute("SELECT * FROM music ORDER BY created_at DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_music(music_id: str) -> Optional[dict]:
+    with _lock:
+        row = _connect().execute("SELECT * FROM music WHERE id=?", (music_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_music(music_id: str) -> None:
+    with _lock:
+        c = _connect()
+        c.execute("DELETE FROM music WHERE id=?", (music_id,))
+        c.commit()

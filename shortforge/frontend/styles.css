@@ -186,6 +186,17 @@ label input, label select { margin-top: 6px; }
 .channel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .channel-actions { display: flex; gap: 8px; }
 
+/* Toolbars, row actions, music library */
+.list-toolbar { display: flex; align-items: center; justify-content: space-between; margin: 22px 4px 12px; }
+.row-del { background: transparent; border: none; cursor: pointer; font-size: 1rem; opacity: 0.6; padding: 4px; }
+.row-del:hover { opacity: 1; }
+.btn.danger { background: rgba(255,84,112,0.18); color: var(--danger); }
+.music-upload { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.music-upload input[type="file"] { flex: 1; font-size: 0.8rem; }
+.music-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.music-row { display: flex; align-items: center; justify-content: space-between;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 0.85rem; }
+
 /* Dub detail modal */
 .dub-actions-row { display: flex; gap: 10px; margin: 14px 0; }
 .dub-actions-row .btn { flex: 1; }

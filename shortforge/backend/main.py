@@ -8,7 +8,7 @@ import shutil
 import threading
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -132,6 +132,8 @@ async def create_job(request: Request, _: None = Depends(require_auth)):
         "reframe": "face" if body.get("reframe", "face") == "face" else "center",
         "min_len": max(5, min(90, float(body.get("min_len", 15)))),
         "max_len": max(10, min(180, float(body.get("max_len", 60)))),
+        "music_id": str(body.get("music_id", "")).strip(),
+        "music_gain": max(0.0, min(1.0, float(body.get("music_gain", 0.18)))),
     }
     jid = db.create_job(url, "", params)
     return {"id": jid}
@@ -294,7 +296,8 @@ async def create_dub(short_id: str, request: Request, _: None = Depends(require_
     dest = str(body.get("dest_channel_id", "")).strip()
     if dest and not db.get_my_channel(dest):
         raise HTTPException(status_code=400, detail="Unknown destination channel")
-    did = db.create_dub(short_id, lang, dest)
+    music_id = str(body.get("music_id", "")).strip()
+    did = db.create_dub(short_id, lang, dest, music_id)
     return {"id": did}
 
 
@@ -388,6 +391,93 @@ def dub_thumb(dub_id: str, _: None = Depends(require_auth)):
     if not d or not d.get("thumb") or not Path(d["thumb"]).exists():
         raise HTTPException(status_code=404, detail="Not found")
     return FileResponse(d["thumb"], media_type="image/jpeg")
+
+
+# --- management: retry / clear ---------------------------------------------
+
+@app.post("/api/jobs/{job_id}/retry")
+def retry_job(job_id: str, _: None = Depends(require_auth)):
+    if not db.get_job(job_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    # Clear previous shorts + files, then re-queue for a clean re-run.
+    shutil.rmtree(config.OUTPUT_DIR / job_id, ignore_errors=True)
+    db.delete_job_shorts(job_id)
+    db.reset_job(job_id)
+    return {"ok": True}
+
+
+@app.post("/api/jobs/clear-failed")
+def clear_failed_jobs(_: None = Depends(require_auth)):
+    n = 0
+    for job in db.list_failed_jobs():
+        shutil.rmtree(config.OUTPUT_DIR / job["id"], ignore_errors=True)
+        shutil.rmtree(config.WORK_DIR / job["id"], ignore_errors=True)
+        db.delete_job(job["id"])
+        n += 1
+    return {"deleted": n}
+
+
+@app.post("/api/dubs/{dub_id}/retry")
+def retry_dub(dub_id: str, _: None = Depends(require_auth)):
+    if not db.get_dub(dub_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    db.reset_dub(dub_id)
+    return {"ok": True}
+
+
+@app.delete("/api/dubs/{dub_id}")
+def delete_dub(dub_id: str, _: None = Depends(require_auth)):
+    d = db.get_dub(dub_id)
+    if not d:
+        raise HTTPException(status_code=404, detail="Not found")
+    for key in ("path", "thumb"):
+        if d.get(key):
+            Path(d[key]).unlink(missing_ok=True)
+    db.delete_dub(dub_id)
+    return {"ok": True}
+
+
+# --- music library ----------------------------------------------------------
+
+@app.post("/api/music")
+async def upload_music(file: UploadFile = File(...), _: None = Depends(require_auth)):
+    config.ensure_dirs()
+    music_dir = config.DATA_DIR / "music"
+    music_dir.mkdir(parents=True, exist_ok=True)
+    name = file.filename or "track.mp3"
+    ext = Path(name).suffix or ".mp3"
+    import uuid as _uuid
+    fname = _uuid.uuid4().hex[:12] + ext
+    dest = music_dir / fname
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    mid = db.add_music(name, str(dest))
+    return {"id": mid, "name": name}
+
+
+@app.get("/api/music")
+def get_music(_: None = Depends(require_auth)):
+    return {"music": [{"id": m["id"], "name": m["name"]} for m in db.list_music()]}
+
+
+@app.delete("/api/music/{music_id}")
+def delete_music(music_id: str, _: None = Depends(require_auth)):
+    m = db.get_music(music_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="Not found")
+    if m.get("path"):
+        Path(m["path"]).unlink(missing_ok=True)
+    db.delete_music(music_id)
+    return {"ok": True}
+
+
+# --- system: 24/7 service command -------------------------------------------
+
+@app.get("/api/system/service")
+def service_command(_: None = Depends(require_auth)):
+    """Return the one-time command that installs the 24/7 systemd service."""
+    root = config.BASE_DIR
+    return {"command": f"cd {root} && ./install-service.sh"}
 
 
 # Static assets (css/js) — safe to serve without auth (no secrets).

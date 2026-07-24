@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import config, db
-from . import captions, download, highlights, reframe, render, transcribe
+from . import audio_mix, captions, download, highlights, reframe, render, transcribe
 
 
 def _band(lo: int, hi: int):
@@ -94,6 +94,19 @@ def run_job(job_id: str) -> None:
                 src["path"], clip["start"], clip["end"], crop,
                 ass_path, out_file, thumb_file,
             )
+
+            # Optional background music.
+            music_id = params.get("music_id")
+            if music_id:
+                track = db.get_music(music_id)
+                if track and track.get("path"):
+                    try:
+                        audio_mix.apply_music_in_place(
+                            str(out_file), track["path"],
+                            gain=float(params.get("music_gain", 0.18)),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        db.append_log(job_id, f"Music mix skipped: {exc}")
 
             db.add_short(
                 job_id, idx=n, title=clip["title"], reason=clip["reason"],

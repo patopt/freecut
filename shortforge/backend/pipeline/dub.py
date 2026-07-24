@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 
 from .. import config, db
-from . import download, transcribe, translate, tts
+from . import audio_mix, download, transcribe, translate, tts
 
 
 def run_dub(dub_id: str) -> None:
@@ -83,6 +83,18 @@ def run_dub(dub_id: str) -> None:
         out_file = out_dir / f"{dub_id}.mp4"
         thumb_file = out_dir / f"{dub_id}.jpg"
         _mux(src["path"], audio_path, out_file)
+
+        # Optional background music under the voiceover.
+        music_id = dub.get("music_id")
+        if music_id:
+            track = db.get_music(music_id)
+            if track and track.get("path"):
+                try:
+                    audio_mix.apply_music_in_place(str(out_file), track["path"], gain=0.16)
+                    db.append_dub_log(dub_id, "Background music mixed in")
+                except Exception as exc:  # noqa: BLE001
+                    db.append_dub_log(dub_id, f"Music mix skipped: {exc}")
+
         subprocess.run(
             ["ffmpeg", "-y", "-ss", "1", "-i", str(out_file), "-frames:v", "1",
              "-vf", "scale=360:-1", str(thumb_file)],

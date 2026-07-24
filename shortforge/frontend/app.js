@@ -6,6 +6,8 @@ let dubEventSource = null;
 let channelPollTimer = null;
 let currentChannelId = null;
 let currentMyChannelId = null;
+let currentJobId = null;
+let currentDubId = null;
 let pendingDubShortId = null;
 let languagesCache = null;
 
@@ -70,8 +72,16 @@ async function loadJobs() {
     const count = job.status === 'done' ? `${job.num_shorts} shorts` : (ACTIVE.has(job.status) ? `${job.progress}%` : '');
     el.innerHTML = `<div class="job-info"><div class="job-title">${escapeHtml(title)}</div>
       <div class="job-sub">${STAGE_LABEL[job.status] || job.status} · ${count}</div></div>
-      <span class="badge ${badgeClass(job.status)}">${STAGE_LABEL[job.status] || job.status}</span>`;
-    el.addEventListener('click', () => openDetail(job.id));
+      <span class="badge ${badgeClass(job.status)}">${STAGE_LABEL[job.status] || job.status}</span>
+      <button class="row-del" title="Delete">🗑</button>`;
+    el.querySelector('.job-info').addEventListener('click', () => openDetail(job.id));
+    el.querySelector('.badge').addEventListener('click', () => openDetail(job.id));
+    el.querySelector('.row-del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('Delete this video and its shorts?')) return;
+      try { await api(`/api/jobs/${job.id}`, { method: 'DELETE' }); } catch (_) {}
+      loadJobs();
+    });
     wrap.appendChild(el);
   }
 }
@@ -82,7 +92,8 @@ async function createJob() {
   if (!url) { err.textContent = 'Paste a YouTube URL first.'; return; }
   const btn = $('btn-create'); btn.disabled = true; btn.textContent = 'Starting…';
   try {
-    const body = { url, count: parseInt($('opt-count').value, 10), reframe: $('opt-reframe').value, captions: $('opt-captions').checked };
+    const body = { url, count: parseInt($('opt-count').value, 10), reframe: $('opt-reframe').value,
+      captions: $('opt-captions').checked, music_id: $('opt-music').value };
     const { id } = await api('/api/jobs', { method: 'POST', body: JSON.stringify(body) });
     $('job-url').value = ''; openDetail(id); loadJobs();
   } catch (e) { err.textContent = e.message; }
@@ -96,6 +107,7 @@ function showClipView(which) {
 function closeStreams() { if (currentEventSource) { currentEventSource.close(); currentEventSource = null; } }
 
 async function openDetail(jobId) {
+  currentJobId = jobId;
   closeStreams(); showClipView('detail'); $('shorts').innerHTML = '';
   try { renderDetail(await api(`/api/jobs/${jobId}`)); } catch (_) { showClipView('list'); return; }
   currentEventSource = new EventSource(`/api/jobs/${jobId}/events`);
@@ -307,6 +319,7 @@ async function openLangModal(shortId) {
     const o = document.createElement('option'); o.value = code; o.textContent = `${name} (${code})`; sel.appendChild(o);
   }
   sel.value = 'fr';
+  await loadMusicOptions();
   // Populate destination channels.
   const dest = $('dest-select'); dest.innerHTML = '<option value="">— None —</option>';
   try {
@@ -318,7 +331,7 @@ async function openLangModal(shortId) {
 
 async function confirmLang() {
   if (!pendingDubShortId) return;
-  const body = { lang: $('lang-select').value, dest_channel_id: $('dest-select').value };
+  const body = { lang: $('lang-select').value, dest_channel_id: $('dest-select').value, music_id: $('dub-music').value };
   try { await api(`/api/shorts-src/${pendingDubShortId}/dub`, { method: 'POST', body: JSON.stringify(body) }); }
   catch (e) { alert(e.message); }
   $('lang-modal').classList.add('hidden'); pendingDubShortId = null;
@@ -328,6 +341,7 @@ async function confirmLang() {
 function closeDubStream() { if (dubEventSource) { dubEventSource.close(); dubEventSource = null; } }
 
 async function openDubModal(dubId) {
+  currentDubId = dubId;
   closeDubStream();
   $('dub-modal').classList.remove('hidden');
   try { renderDub(await api(`/api/dubs/${dubId}`)); } catch (_) { return; }
@@ -359,6 +373,77 @@ function renderDub(d) {
   if (d.status === 'done' && currentMyChannelId) reloadMyChannel();
 }
 
+// ===================== MUSIC + MANAGEMENT ==================================
+
+async function loadMusicOptions() {
+  let tracks = [];
+  try { tracks = (await api('/api/music')).music; } catch (_) {}
+  for (const selId of ['opt-music', 'dub-music']) {
+    const sel = $(selId); if (!sel) continue;
+    sel.innerHTML = '<option value="">— None —</option>';
+    for (const t of tracks) { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name; sel.appendChild(o); }
+  }
+  return tracks;
+}
+
+async function renderMusicList() {
+  const tracks = await loadMusicOptions();
+  const wrap = $('music-list'); if (!wrap) return;
+  wrap.innerHTML = tracks.length ? '' : '<span class="muted">No tracks uploaded.</span>';
+  for (const t of tracks) {
+    const row = document.createElement('div'); row.className = 'music-row';
+    row.innerHTML = `<span>🎵 ${escapeHtml(t.name)}</span><button class="row-del" title="Delete">🗑</button>`;
+    row.querySelector('.row-del').addEventListener('click', async () => {
+      try { await api(`/api/music/${t.id}`, { method: 'DELETE' }); } catch (_) {}
+      renderMusicList();
+    });
+    wrap.appendChild(row);
+  }
+}
+
+async function uploadMusic() {
+  const input = $('music-file');
+  if (!input.files || !input.files[0]) { return; }
+  const btn = $('btn-upload-music'); btn.disabled = true; btn.textContent = 'Uploading…';
+  const fd = new FormData(); fd.append('file', input.files[0]);
+  try {
+    const res = await fetch('/api/music', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('upload failed');
+    input.value = ''; await renderMusicList();
+  } catch (_) {}
+  finally { btn.disabled = false; btn.textContent = 'Upload'; }
+}
+
+async function clearFailed() {
+  if (!confirm('Delete all failed videos?')) return;
+  try { await api('/api/jobs/clear-failed', { method: 'POST' }); } catch (_) {}
+  loadJobs();
+}
+
+async function retryJob() {
+  if (!currentJobId) return;
+  try { await api(`/api/jobs/${currentJobId}/retry`, { method: 'POST' }); } catch (_) {}
+  openDetail(currentJobId);
+}
+async function deleteJob() {
+  if (!currentJobId || !confirm('Delete this video and its shorts?')) return;
+  try { await api(`/api/jobs/${currentJobId}`, { method: 'DELETE' }); } catch (_) {}
+  closeStreams(); showClipView('list'); loadJobs();
+}
+
+async function retryDub() {
+  if (!currentDubId) return;
+  try { await api(`/api/dubs/${currentDubId}/retry`, { method: 'POST' }); } catch (_) {}
+  openDubModal(currentDubId);
+}
+async function deleteDub() {
+  if (!currentDubId || !confirm('Delete this dub?')) return;
+  try { await api(`/api/dubs/${currentDubId}`, { method: 'DELETE' }); } catch (_) {}
+  closeDubStream(); $('dub-modal').classList.add('hidden');
+  if (currentChannelId) reloadChannel();
+  if (currentMyChannelId) reloadMyChannel();
+}
+
 // ===================== SHARED: player + settings ===========================
 
 function openPlayer(videoUrl, downloadUrl) {
@@ -378,6 +463,8 @@ async function openSettings() {
     $('ngrok-status').textContent = s.ngrok_authtoken_set ? 'Token configured ✓' : 'No token set';
     $('set-gemini-key').value = ''; $('set-ngrok').value = ''; $('set-password').value = '';
     $('settings-msg').textContent = '';
+    renderMusicList();
+    try { $('service-cmd').textContent = (await api('/api/system/service')).command; } catch (_) {}
     $('settings-modal').classList.remove('hidden');
   } catch (_) {}
 }
@@ -399,6 +486,12 @@ document.querySelectorAll('.subtab').forEach((t) => t.addEventListener('click', 
 
 $('btn-create').addEventListener('click', createJob);
 $('btn-back').addEventListener('click', () => { closeStreams(); showClipView('list'); loadJobs(); });
+$('btn-clear-failed').addEventListener('click', clearFailed);
+$('btn-retry-job').addEventListener('click', retryJob);
+$('btn-delete-job').addEventListener('click', deleteJob);
+$('btn-upload-music').addEventListener('click', uploadMusic);
+$('dub-retry').addEventListener('click', retryDub);
+$('dub-delete').addEventListener('click', deleteDub);
 
 $('btn-add-channel').addEventListener('click', addChannel);
 $('btn-channel-back').addEventListener('click', () => { stopChannelPoll(); currentChannelId = null; showSourcesView('channels'); loadChannels(); });
@@ -427,6 +520,7 @@ $('btn-logout').addEventListener('click', async () => { await fetch('/api/logout
 });
 
 loadJobs();
+loadMusicOptions();
 setInterval(() => {
   if (!$('screen-clip').classList.contains('hidden') && !$('view-list').classList.contains('hidden')) loadJobs();
 }, 5000);

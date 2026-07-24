@@ -42,11 +42,17 @@
             <label class="switch-row">
               <input type="checkbox" id="opt-captions" checked /> Captions
             </label>
+            <label>Music
+              <select id="opt-music"><option value="">— None —</option></select>
+            </label>
           </div>
           <button id="btn-create" class="btn primary block">Generate shorts</button>
           <div id="create-error" class="error"></div>
         </div>
-        <h2 class="section-title">Your videos</h2>
+        <div class="list-toolbar">
+          <h2 class="section-title" style="margin:0">Your videos</h2>
+          <button id="btn-clear-failed" class="btn ghost small">Clear failed</button>
+        </div>
         <div id="jobs" class="jobs"></div>
       </section>
 
@@ -59,6 +65,10 @@
             <span id="detail-message" class="muted"></span>
           </div>
           <div class="progress"><div id="detail-bar" class="progress-bar"></div></div>
+          <div class="dub-actions-row">
+            <button id="btn-retry-job" class="btn small">⟳ Retry</button>
+            <button id="btn-delete-job" class="btn small danger">🗑 Delete</button>
+          </div>
           <details class="log-wrap"><summary>Live log</summary><pre id="detail-log" class="log"></pre></details>
         </div>
         <h2 class="section-title">Generated shorts</h2>
@@ -161,6 +171,19 @@
       <label>Change dashboard password<input type="password" id="set-password" placeholder="New password (optional)" /></label>
       <button id="btn-save-settings" class="btn primary block">Save settings</button>
       <div id="settings-msg" class="muted"></div>
+
+      <hr />
+      <div class="meta-label">Background music library</div>
+      <div class="music-upload">
+        <input type="file" id="music-file" accept="audio/*" />
+        <button id="btn-upload-music" class="btn small">Upload</button>
+      </div>
+      <div id="music-list" class="music-list"></div>
+
+      <hr />
+      <div class="meta-label">24/7 mode (keep running after SSH logout)</div>
+      <p class="muted">Run this once on your VPS. It installs a service that keeps ShortForge running and restarts it on reboot:</p>
+      <div class="meta-val" id="service-cmd">…</div>
     </div>
   </div>
 
@@ -170,6 +193,7 @@
       <div class="modal-head"><h2>Translate &amp; dub</h2><button id="btn-close-lang" class="icon-btn">✕</button></div>
       <label>Language<select id="lang-select"></select></label>
       <label>Send to my channel<select id="dest-select"><option value="">— None —</option></select></label>
+      <label>Background music<select id="dub-music"><option value="">— None —</option></select></label>
       <button id="btn-confirm-lang" class="btn primary block">Start translation</button>
     </div>
   </div>
@@ -186,6 +210,10 @@
       <div id="dub-actions" class="dub-actions-row hidden">
         <button id="dub-play" class="btn primary">▶ Play</button>
         <a id="dub-dl" class="btn" download>Download</a>
+      </div>
+      <div class="dub-actions-row">
+        <button id="dub-retry" class="btn small">⟳ Retry</button>
+        <button id="dub-delete" class="btn small danger">🗑 Delete</button>
       </div>
       <div id="dub-meta"></div>
       <details class="log-wrap" open><summary>Log</summary><pre id="dub-log" class="log"></pre></details>
