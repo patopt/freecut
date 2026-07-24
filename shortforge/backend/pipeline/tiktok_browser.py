@@ -74,6 +74,73 @@ def save_cookies(account_id: str, cookies_text: str) -> tuple[Path, int]:
     return path, len(tiktok)
 
 
+def _click_robust(host, page, selectors: list[str], log: Log, what: str) -> bool:
+    """Click the first matching element, defeating overlays.
+
+    TikTok overlays its editor on top of the Post button, so Playwright's
+    actionability check times out ("element is visible, enabled and stable" then
+    a 30s timeout). We try a normal click, then a forced one, then a direct DOM
+    dispatch which no overlay can intercept.
+    """
+    for sel in selectors:
+        try:
+            el = host.query_selector(sel)
+        except Exception:  # noqa: BLE001
+            el = None
+        if not el:
+            continue
+        try:
+            if el.get_attribute("disabled") is not None:
+                continue
+            if not el.is_enabled():
+                continue
+        except Exception:  # noqa: BLE001
+            pass
+        # 1. normal, 2. forced (skips overlap check), 3. DOM dispatch
+        for attempt, action in enumerate(("normal", "force", "dom")):
+            try:
+                if action == "normal":
+                    el.click(timeout=8000)
+                elif action == "force":
+                    el.click(force=True, timeout=8000)
+                else:
+                    host.evaluate("(e) => e.click()", el)
+                log(f"{what} clicked ({action})")
+                return True
+            except Exception as exc:  # noqa: BLE001
+                if attempt == 2:
+                    log(f"Could not click {what} via {sel}: {str(exc)[:120]}", )
+    return False
+
+
+def _upload_finished(host) -> bool:
+    """True when TikTok reports the media is processed (Post can be pressed)."""
+    try:
+        return bool(host.evaluate(
+            "() => {"
+            " const t = document.body ? document.body.innerText : '';"
+            " if (/uploading|téléchargement|processing/i.test(t)) return false;"
+            " const b = document.querySelector(\"button[data-e2e='post_video_button']\")"
+            "   || Array.from(document.querySelectorAll('button'))"
+            "        .find(x => /^(post|publier)$/i.test((x.innerText||'').trim()));"
+            " return !!(b && !b.disabled);"
+            "}"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _post_succeeded(page, host) -> bool:
+    """Detect the confirmation TikTok shows after a successful post."""
+    try:
+        if "/upload" not in (page.url or "") and "tiktokstudio" not in (page.url or ""):
+            return True
+        return bool(host.evaluate(
+            "() => /your video is being uploaded|video posted|manage your posts|"
+            "vidéo en cours|publiée/i.test(document.body ? document.body.innerText : '')"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _find_and_upload(page, video_path: str, caption: str, log: Log) -> None:
     # The upload page renders the file input inside an iframe on some variants.
     frames = [page] + list(page.frames)
@@ -120,26 +187,44 @@ def _find_and_upload(page, video_path: str, caption: str, log: Log) -> None:
         except Exception as exc:  # noqa: BLE001
             log(f"Could not set caption ({exc}); posting without it")
 
-    # Wait until the Post button is enabled (upload finished), then click it.
+    # Wait until TikTok finished processing the media, then post.
     post_selectors = [
         "button[data-e2e='post_video_button']",
         "button:has-text('Post')",
         "button:has-text('Publier')",
+        "div[role='button']:has-text('Post')",
     ]
     deadline = time.time() + 900
+    ready = False
     while time.time() < deadline:
-        for sel in post_selectors:
-            try:
-                btn = host.query_selector(sel)
-            except Exception:  # noqa: BLE001
-                btn = None
-            if btn and btn.is_enabled():
-                btn.click()
-                log("Post button clicked")
-                page.wait_for_timeout(8000)
-                return
+        if _upload_finished(host):
+            ready = True
+            break
         page.wait_for_timeout(3000)
-    raise RuntimeError("Post button never became clickable (upload stuck or session expired)")
+    if not ready:
+        raise RuntimeError("TikTok never finished processing the upload (media stuck)")
+    log("Upload processed — posting")
+
+    # Dismiss anything overlaying the button, then click it.
+    try:
+        page.keyboard.press("Escape")
+    except Exception:  # noqa: BLE001
+        pass
+    if not _click_robust(host, page, post_selectors, log, "Post button"):
+        raise RuntimeError(
+            "Could not press Post (TikTok's layout may have changed). "
+            "Use 'Publish manually' to finish it in the remote browser.")
+
+    # Confirm it actually went through instead of assuming success.
+    confirm_deadline = time.time() + 120
+    while time.time() < confirm_deadline:
+        if _post_succeeded(page, host):
+            log("TikTok confirmed the post")
+            return
+        page.wait_for_timeout(3000)
+    raise RuntimeError(
+        "Post was clicked but TikTok never confirmed it. Check the account, or "
+        "use 'Publish manually' to finish it in the remote browser.")
 
 
 def post_video(account: dict, video_path: str, caption: str, log: Log = lambda _m: None) -> str:

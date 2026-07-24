@@ -225,13 +225,16 @@ class SessionRunner(threading.Thread):
     """Owns the headful browser for one account and reports what it sees."""
 
     def __init__(self, account_id: str, target: str = "tiktok",
-                 start_url: str = "") -> None:
+                 start_url: str = "", prefill: Optional[dict] = None) -> None:
         super().__init__(daemon=True, name=f"session-{target}-{account_id}")
         self.account_id = account_id
         self.target = target if target in TARGETS else "tiktok"
         self.cfg = TARGETS[self.target]
         self.start_url = start_url or self.cfg["url"]
         self.callback_url = ""
+        # {"video": path, "caption": text} -> attach the file and caption so the
+        # user only has to press Post.
+        self.prefill = prefill or {}
         self.logs: list[dict] = []
         self.logged_in = False
         self.username = ""
@@ -297,8 +300,13 @@ class SessionRunner(threading.Thread):
                     page.goto(self.start_url, wait_until="domcontentloaded", timeout=60000)
                 except Exception as exc:  # noqa: BLE001
                     self.log(f"Could not open {label} ({exc}); you can navigate manually", "warn")
+                if self.prefill.get("video"):
+                    self._prefill_upload(page)
                 self.ready.set()
-                self.log(f"Waiting for you to log into {label}…")
+                if self.prefill.get("video"):
+                    self.log("Ready — check the caption and press Post in the window", "success")
+                else:
+                    self.log(f"Waiting for you to log into {label}…")
 
                 # Watch the session until the user presses Done / Stop.
                 while not self._stop.is_set():
@@ -375,6 +383,52 @@ class SessionRunner(threading.Thread):
         finally:
             self.ready.set()
             self.finished.set()
+
+    def _prefill_upload(self, page) -> None:
+        """Attach the video and caption so the user only presses Post."""
+        video = self.prefill.get("video", "")
+        caption = self.prefill.get("caption", "")
+        self.log("Attaching the video to TikTok's upload page…")
+        deadline = time.time() + 90
+        file_input = None
+        while time.time() < deadline and file_input is None:
+            for frame in [page] + list(page.frames):
+                try:
+                    el = frame.query_selector("input[type='file']")
+                except Exception:  # noqa: BLE001
+                    el = None
+                if el:
+                    file_input = el
+                    break
+            if file_input is None:
+                page.wait_for_timeout(2000)
+        if file_input is None:
+            self.log("Upload page has no file input — log in first, then retry", "warn")
+            return
+        try:
+            file_input.set_input_files(video)
+            self.log("Video attached — TikTok is processing it", "success")
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"Could not attach the video: {exc}", "error")
+            return
+        if not caption:
+            return
+        page.wait_for_timeout(6000)
+        for sel in ("div[contenteditable='true']", "div.public-DraftEditor-content"):
+            try:
+                box = page.query_selector(sel)
+            except Exception:  # noqa: BLE001
+                box = None
+            if box:
+                try:
+                    box.click()
+                    page.keyboard.press("Control+A")
+                    page.keyboard.press("Delete")
+                    box.type(caption[:2100], delay=6)
+                    self.log("Caption filled", "success")
+                except Exception:  # noqa: BLE001
+                    self.log("Could not fill the caption — type it manually", "warn")
+                break
 
     def _watch_for_callback(self, page) -> None:
         """Catch the nordvpn:// redirect the site fires right after sign-in."""
@@ -484,7 +538,8 @@ def status() -> dict:
     }
 
 
-def start_session(account_id: str, target: str = "tiktok", start_url: str = "") -> dict:
+def start_session(account_id: str, target: str = "tiktok", start_url: str = "",
+                  prefill: Optional[dict] = None) -> dict:
     missing = missing_deps()
     blocking = [m for m in missing if m != "novnc"]
     if blocking:
@@ -518,7 +573,7 @@ def start_session(account_id: str, target: str = "tiktok", start_url: str = "") 
 
         # 3. Playwright-driven headful Chromium with this account's profile
         global _runner
-        _runner = SessionRunner(account_id, target, start_url)
+        _runner = SessionRunner(account_id, target, start_url, prefill)
         _runner.start()
 
     _runner.ready.wait(timeout=60)

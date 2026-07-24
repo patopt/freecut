@@ -965,6 +965,20 @@ def update_publish(pub_id: str, **fields: Any) -> None:
         c.commit()
 
 
+def publishes_by_status(status: str) -> list[dict]:
+    with _lock:
+        rows = _connect().execute(
+            "SELECT * FROM publish_queue WHERE status=?", (status,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_publish(pub_id: str) -> Optional[dict]:
+    with _lock:
+        row = _connect().execute(
+            "SELECT * FROM publish_queue WHERE id=?", (pub_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def due_publishes(now: float) -> list[dict]:
     with _lock:
         rows = _connect().execute(

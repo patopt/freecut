@@ -133,7 +133,21 @@ def run_auto_enqueue(refresh_sources: bool) -> None:
             pass
 
 
+PUBLISH_TIMEOUT = 45 * 60  # a stuck "publishing" row must not hang forever
+
+
+def reap_stuck_publishes() -> None:
+    """Fail rows left in 'publishing' by a crash/hang so the UI never sticks."""
+    now = time.time()
+    for row in db.publishes_by_status("publishing"):
+        if now - float(row.get("updated_at") or 0) > PUBLISH_TIMEOUT:
+            db.update_publish(
+                row["id"], status="error",
+                error="Publishing timed out. Use 'Publish manually' to finish it.")
+
+
 def publish_due() -> None:
+    reap_stuck_publishes()
     for item in db.due_publishes(time.time()):
         dub = db.get_dub(item["dub_id"])
         if not dub:
