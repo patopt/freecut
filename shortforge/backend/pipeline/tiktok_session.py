@@ -416,6 +416,16 @@ class SessionRunner(threading.Thread):
                             backup.mkdir(parents=True, exist_ok=True)
                             ctx.storage_state(path=str(backup / f"{self.account_id}.json"))
                             self.log(f"Cookies captured and stored ({len(cookies)})", "success")
+                            # Confirm the auto-uploader can actually use them.
+                            from . import tiktok_publish
+
+                            usable = tiktok_publish.build_cookies_list(self.account_id)
+                            if usable:
+                                self.log(f"Auto-upload ready ({len(usable)} usable cookies)",
+                                         "success")
+                            else:
+                                self.log("Cookies saved but unusable for auto-upload — "
+                                         "make sure you are fully logged in", "warn")
                     except Exception as exc:  # noqa: BLE001
                         self.log(f"Could not export cookies: {exc}", "warn")
                     if not self.logged_in:

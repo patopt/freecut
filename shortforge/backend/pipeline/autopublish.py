@@ -21,6 +21,7 @@ from .. import db
 from . import channels as channels_mod
 from . import tiktok as tt_mod
 from . import tiktok_browser as tt_browser
+from . import tiktok_publish as tt_publish
 from . import youtube as yt_mod
 
 # Optimized preset: 2 posts/day inside the 12h-15h window (server local time).
@@ -174,7 +175,18 @@ def publish_due() -> None:
                 caption = " ".join(
                     [title] + [f"#{t.replace(' ', '')}" for t in tags[:5]]).strip()
                 if (account.get("mode") or "api") == "browser":
-                    pid = tt_browser.post_video(account, dub["path"], caption)
+                    logs: list[str] = []
+                    # Preferred: tiktok-uploader (cookie-based, fully automatic).
+                    pid = tt_publish.try_post(
+                        account, dub["path"], caption, log=logs.append)
+                    if pid is None:
+                        # Fall back to the in-house Playwright uploader.
+                        logs.append("Falling back to the built-in uploader")
+                        pid = tt_browser.post_video(
+                            account, dub["path"], caption, log=logs.append)
+                    if logs:
+                        db.log_activity("publish", f"TikTok upload log: {title}",
+                                        " | ".join(logs[-6:]), "info", "dub", item["dub_id"])
                 else:
                     pid = tt_mod.post_video(
                         account, dub["path"], caption,

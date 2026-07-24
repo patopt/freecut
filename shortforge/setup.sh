@@ -21,6 +21,10 @@ if command -v apt-get >/dev/null 2>&1; then
   # TikTok on the VPS; espeak-ng is required by the Kokoro voice engine.
   $SUDO apt-get install -y ffmpeg git fonts-dejavu-core software-properties-common \
     espeak-ng xvfb x11vnc curl x11-utils x11-xserver-utils
+  # tiktok-uploader drives Chrome through Selenium, which needs a chromedriver.
+  $SUDO apt-get install -y chromium-driver chromium-browser 2>/dev/null \
+    || $SUDO apt-get install -y chromium-driver chromium 2>/dev/null \
+    || warn "chromium-driver unavailable; tiktok-uploader will fetch its own driver"
   # novnc isn't in every release's repos — don't let it fail the whole install.
   $SUDO apt-get install -y novnc || warn "novnc package unavailable; will download it instead"
 else

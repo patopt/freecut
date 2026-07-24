@@ -211,6 +211,12 @@ language, cadence, captions, music).
 
 Three ways to connect, all from **Settings → TikTok accounts**:
 
+Posting itself is fully automatic: ShortForge feeds the cookies captured at
+login to [`tiktok-uploader`](https://github.com/wkaisertexas/tiktok-uploader),
+which duplicates that logged-in session into a remote-controlled Chrome. If it
+can't run, the built-in Playwright uploader takes over, and only if both fail
+does a **Publish manually** button appear on the queue row.
+
 **1. Remote browser (recommended — no API, no audit, nothing to export).**
 Click **🖥 Connect a TikTok account**, name it, and a **real Chromium running on
 your VPS appears inside the dashboard**. Log into TikTok exactly as on a PC (QR

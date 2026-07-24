@@ -25,6 +25,9 @@ google-auth-httplib2==0.2.0
 
 # Headless-browser TikTok posting (no API / no app audit needed)
 playwright==1.49.1
+# Preferred automatic TikTok uploader: duplicates the logged-in browser cookies
+# we capture through the dashboard. https://github.com/wkaisertexas/tiktok-uploader
+tiktok-uploader==1.2.0
 
 # Optional public tunnel (used by run.sh --tunnel)
 pyngrok==7.2.3
