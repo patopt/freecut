@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import (
     Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile,
+    WebSocket,
 )
 from fastapi.responses import (
     FileResponse,
@@ -26,6 +27,7 @@ from .pipeline import captions as captions_mod
 from .pipeline import channels as channels_mod
 from .pipeline import tiktok as tiktok_mod
 from .pipeline import tiktok_browser as tiktok_browser_mod
+from .pipeline import tiktok_session as tiktok_session_mod
 from .pipeline import translate as translate_mod
 from .pipeline import youtube as youtube_mod
 
@@ -46,6 +48,7 @@ def _startup() -> None:
 def _shutdown() -> None:
     worker.stop_worker()
     autopublish_mod.stop_scheduler()
+    tiktok_session_mod.shutdown()
 
 
 # --- auth helpers -----------------------------------------------------------
@@ -734,6 +737,83 @@ def tiktok_callback(code: str = "", state: str = ""):
         return RedirectResponse("/?tt=error")
 
 
+@app.get("/api/tiktok/session/status")
+def tiktok_session_status(_: None = Depends(require_auth)):
+    return tiktok_session_mod.status()
+
+
+@app.post("/api/tiktok/session/start")
+async def tiktok_session_start(request: Request, _: None = Depends(require_auth)):
+    body = await request.json()
+    name = str(body.get("name", "")).strip()
+    account_id = str(body.get("account_id", "")).strip()
+    if account_id:
+        if not db.get_tiktok_account(account_id):
+            raise HTTPException(status_code=404, detail="Account not found")
+    else:
+        if not name:
+            raise HTTPException(status_code=400, detail="Give the account a name")
+        import uuid as _uuid
+        account_id = db.upsert_tiktok_account(
+            f"browser-{_uuid.uuid4().hex[:10]}", name, "", "{}")
+        db.update_tiktok_account(account_id, mode="browser")
+    try:
+        info = tiktok_session_mod.start_session(account_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {**info, "account_id": account_id}
+
+
+@app.post("/api/tiktok/session/stop")
+def tiktok_session_stop(_: None = Depends(require_auth)):
+    tiktok_session_mod.stop_session()
+    return {"ok": True}
+
+
+@app.websocket("/api/vnc/ws")
+async def vnc_bridge(ws: WebSocket):
+    """Bridge noVNC (WebSocket, binary RFB) to the local x11vnc TCP port."""
+    if not auth.valid_session(ws.cookies.get(auth.COOKIE_NAME)):
+        await ws.close(code=1008)
+        return
+    await ws.accept(subprotocol="binary")
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", tiktok_session_mod.VNC_PORT)
+    except Exception:  # noqa: BLE001
+        await ws.close(code=1011)
+        return
+
+    async def ws_to_tcp():
+        try:
+            while True:
+                data = await ws.receive_bytes()
+                writer.write(data)
+                await writer.drain()
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def tcp_to_ws():
+        try:
+            while True:
+                data = await reader.read(65536)
+                if not data:
+                    break
+                await ws.send_bytes(data)
+        except Exception:  # noqa: BLE001
+            pass
+
+    task_a = asyncio.create_task(ws_to_tcp())
+    task_b = asyncio.create_task(tcp_to_ws())
+    done, pending = await asyncio.wait({task_a, task_b}, return_when=asyncio.FIRST_COMPLETED)
+    for t in pending:
+        t.cancel()
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @app.post("/api/tiktok/accounts/browser")
 async def tiktok_add_browser(
     name: str = Form(...), file: UploadFile = File(...), _: None = Depends(require_auth),
@@ -873,6 +953,12 @@ def service_command(_: None = Depends(require_auth)):
     root = config.BASE_DIR
     return {"command": f"cd {root} && ./install-service.sh"}
 
+
+# noVNC client (from the distro package) for the in-dashboard remote browser.
+for _novnc in ("/usr/share/novnc", "/usr/share/webapps/novnc"):
+    if Path(_novnc).is_dir():
+        app.mount("/novnc", StaticFiles(directory=_novnc), name="novnc")
+        break
 
 # Static assets (css/js) — safe to serve without auth (no secrets).
 app.mount("/static", StaticFiles(directory=config.FRONTEND_DIR), name="static")

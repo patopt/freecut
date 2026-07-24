@@ -17,7 +17,10 @@ SUDO=""
 if command -v apt-get >/dev/null 2>&1; then
   info "Installing system packages (ffmpeg, fonts, git)..."
   $SUDO apt-get update -y
-  $SUDO apt-get install -y ffmpeg git fonts-dejavu-core software-properties-common espeak-ng
+  # xvfb/x11vnc/novnc power the in-dashboard remote browser used to log into
+  # TikTok on the VPS; espeak-ng is required by the Kokoro voice engine.
+  $SUDO apt-get install -y ffmpeg git fonts-dejavu-core software-properties-common \
+    espeak-ng xvfb x11vnc novnc
 else
   warn "apt-get not found. Make sure ffmpeg and Python 3.10-3.12 are installed."
 fi

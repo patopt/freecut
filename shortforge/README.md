@@ -209,24 +209,33 @@ Connected TikTok accounts show up in **Copy → Mes chaînes** with a TikTok bad
 next to your YouTube channels, and support the same Auto mode (sources, target
 language, cadence, captions, music).
 
-Two ways to connect, both from **Settings → TikTok accounts**:
+Three ways to connect, all from **Settings → TikTok accounts**:
 
-**1. Browser mode (no API, no audit)** — recommended to start.
-The VPS drives a real headless Chromium using your logged-in session, exactly
-as if you posted from your own browser.
-- Log into TikTok in your browser, export cookies with the *Get cookies.txt
-  LOCALLY* extension.
-- Settings → Posting mode → **Send to drafts / Direct**, choose *browser*, then
-  **Connect a TikTok account**, name it and upload the `cookies.txt`.
-- Requires Chromium: `setup.sh` installs it (`python -m playwright install
-  --with-deps chromium`).
-- Your password is never stored. Cookies expire after a while — re-upload a
-  fresh export when posting starts failing with "cookies expired".
-- ⚠️ Automated posting is against TikTok's Terms of Service and can get an
-  account restricted. Use accounts you own and keep the volume human (the
-  Ultra Optimum cadence is designed for this).
+**1. Remote browser (recommended — no API, no audit, nothing to export).**
+Click **🖥 Connect a TikTok account**, name it, and a **real Chromium running on
+your VPS appears inside the dashboard**. Log into TikTok exactly as on a PC (QR
+code, SMS, password), then press **Done**. The browser profile — cookies,
+localStorage, device fingerprint — is saved under
+`data/tiktok_profiles/<account>/` and **reused for every upload**, so TikTok
+sees one consistent browser instead of a fresh automated one.
+- Needs `xvfb`, `x11vnc`, `novnc` (installed by `setup.sh`) plus Chromium.
+- The VNC server is bound to **localhost only**; the picture reaches your
+  browser through the dashboard's authenticated WebSocket bridge, so nothing
+  extra is exposed publicly and it works through the ngrok tunnel.
+- Prefer a desktop VNC app? The modal shows the host, port and password, plus
+  the SSH-tunnel command (`ssh -L 5901:localhost:5901 user@your-vps`). The
+  password is generated once and kept stable.
+- Your TikTok password is never stored on the server.
 
-**2. Official API** — needs a TikTok developer app.
+**2. Import a cookies.txt** — same headless posting, but you export cookies
+from a browser where you're already logged in (*Get cookies.txt LOCALLY*
+extension). Re-upload a fresh export when posting fails with "cookies expired".
+
+⚠️ Automated posting is against TikTok's Terms of Service and can get an account
+restricted. Use accounts you own and keep the volume human — the Ultra Optimum
+cadence is designed for exactly that.
+
+**3. Official API** — needs a TikTok developer app.
 - Create an app at <https://developers.tiktok.com/>, paste the **client key**
   and **client secret** into Settings, and register the redirect URI / origin
   the page displays.

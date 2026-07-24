@@ -339,13 +339,13 @@
         <div class="url-row"><span>Redirect URI</span><code id="tt-redirect">…</code></div>
         <div class="url-row"><span>Site / JavaScript origin</span><code id="tt-origin">…</code></div>
       </div>
-      <label>Posting mode
-        <select id="set-tt-mode">
-          <option value="direct">Direct post (needs audited app)</option>
-          <option value="inbox">Send to drafts (no audit needed)</option>
-        </select>
-      </label>
-      <button id="btn-connect-tiktok" class="btn primary block">Connect a TikTok account</button>
+      <button id="btn-connect-tiktok" class="btn primary block">🖥 Connect a TikTok account (remote browser)</button>
+      <button id="btn-connect-tiktok-api" class="btn block">Connect via official API instead</button>
+      <button id="btn-connect-tiktok-cookies" class="btn ghost block">Import a cookies.txt instead</button>
+      <select id="set-tt-mode" class="hidden">
+        <option value="direct">Direct post</option>
+        <option value="inbox">Send to drafts</option>
+      </select>
       <div id="tt-accounts" class="music-list"></div>
 
       <hr />
@@ -394,12 +394,43 @@
     </div>
   </div>
 
-  <!-- TIKTOK COOKIE CONNECT MODAL (browser mode) -->
+  <!-- TIKTOK REMOTE BROWSER MODAL -->
+  <div id="tt-remote-modal" class="modal hidden">
+    <div class="remote-card">
+      <div class="modal-head">
+        <h2>Connect TikTok</h2>
+        <button id="btn-close-ttremote" class="icon-btn">✕</button>
+      </div>
+      <div id="tt-remote-setup">
+        <p class="muted">A real browser opens on your VPS below. Log into TikTok exactly as you
+        would on a PC (QR code, SMS or password). The session is saved and reused for every upload.</p>
+        <label>Account name<input type="text" id="tt-remote-name" placeholder="e.g. My TikTok FR" /></label>
+        <button id="btn-start-remote" class="btn primary block">🖥 Open remote browser</button>
+        <div id="tt-remote-msg" class="muted"></div>
+      </div>
+      <div id="tt-remote-live" class="hidden">
+        <div class="remote-bar">
+          <span class="muted" id="tt-remote-hint">Log into TikTok, then press Done.</span>
+          <div>
+            <button id="btn-remote-done" class="btn small primary">✓ Done</button>
+            <button id="btn-remote-stop" class="btn small danger">Stop</button>
+          </div>
+        </div>
+        <iframe id="tt-remote-frame" class="remote-frame" allow="clipboard-read; clipboard-write"></iframe>
+        <details class="log-wrap">
+          <summary>Connect with a VNC app instead</summary>
+          <div class="meta-val" id="tt-vnc-info">…</div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIKTOK COOKIE IMPORT MODAL (fallback) -->
   <div id="tt-cookie-modal" class="modal hidden">
     <div class="modal-card">
-      <div class="modal-head"><h2>Connect TikTok (browser)</h2><button id="btn-close-ttcookie" class="icon-btn">✕</button></div>
-      <p class="muted">No API needed. The VPS drives a real browser using your logged-in session.
-      In your browser, log into TikTok, export cookies with the “Get cookies.txt LOCALLY” extension, and upload the file here.</p>
+      <div class="modal-head"><h2>Import TikTok cookies</h2><button id="btn-close-ttcookie" class="icon-btn">✕</button></div>
+      <p class="muted">Alternative to the remote browser: export cookies from a browser where you're
+      logged into TikTok (“Get cookies.txt LOCALLY” extension) and upload the file.</p>
       <label>Account name<input type="text" id="tt-cookie-name" placeholder="e.g. My TikTok FR" /></label>
       <label>cookies.txt<input type="file" id="tt-cookie-file" accept=".txt,.json" /></label>
       <button id="btn-submit-ttcookie" class="btn primary block">Connect account</button>

@@ -732,13 +732,61 @@ async function renderTtAccounts() {
   }
 }
 
-async function connectTikTok() {
-  const mode = $('set-tt-mode').value;
-  if (mode === 'browser') { $('tt-cookie-modal').classList.remove('hidden'); return; }
+async function connectTikTokApi() {
+  const mode = $('set-tt-mode').value || 'direct';
   try {
     const { url } = await api(`/api/tiktok/auth-url?mode=${encodeURIComponent(mode)}`);
     window.location.href = url;
   } catch (e) { alert(e.message); }
+}
+
+// --- remote browser session -------------------------------------------------
+
+let remoteAccountId = null;
+
+function openRemoteModal() {
+  $('tt-remote-setup').classList.remove('hidden');
+  $('tt-remote-live').classList.add('hidden');
+  $('tt-remote-msg').textContent = '';
+  $('tt-remote-modal').classList.remove('hidden');
+}
+
+async function startRemoteBrowser() {
+  const name = $('tt-remote-name').value.trim();
+  const msg = $('tt-remote-msg');
+  if (!name) { msg.textContent = 'Give the account a name first.'; return; }
+  msg.textContent = 'Starting the remote browser on the VPS…';
+  try {
+    const info = await api('/api/tiktok/session/start', {
+      method: 'POST', body: JSON.stringify({ name }) });
+    remoteAccountId = info.account_id;
+    // noVNC connects back through the dashboard's WebSocket bridge.
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const params = new URLSearchParams({
+      autoconnect: '1', resize: 'remote', reconnect: '1',
+      path: 'api/vnc/ws', password: info.vnc_password,
+    });
+    $('tt-remote-frame').src = `/novnc/vnc.html?${params.toString()}`;
+    $('tt-vnc-info').textContent =
+      `Host: ${window.location.hostname}   Port: ${info.vnc_port}   Password: ${info.vnc_password}\n` +
+      `(the VNC port is bound to localhost — use an SSH tunnel: ` +
+      `ssh -L ${info.vnc_port}:localhost:${info.vnc_port} user@your-vps)`;
+    void proto;
+    $('tt-remote-setup').classList.add('hidden');
+    $('tt-remote-live').classList.remove('hidden');
+  } catch (e) { msg.textContent = e.message; }
+}
+
+async function stopRemoteBrowser(done) {
+  try { await api('/api/tiktok/session/stop', { method: 'POST' }); } catch (_) {}
+  $('tt-remote-frame').src = '';
+  $('tt-remote-modal').classList.add('hidden');
+  if (done) {
+    alert('Session saved ✓ — this account will publish using that logged-in browser.');
+  }
+  remoteAccountId = null;
+  renderTtAccounts();
+  loadMyChannels();
 }
 
 async function submitTtCookies() {
@@ -940,7 +988,13 @@ $('btn-save-auto').addEventListener('click', saveAuto);
 $('yt-cadence').addEventListener('change', toggleCadenceFields);
 $('yt-selection').addEventListener('change', toggleSelectionFields);
 $('btn-connect-google').addEventListener('click', connectGoogle);
-$('btn-connect-tiktok').addEventListener('click', connectTikTok);
+$('btn-connect-tiktok').addEventListener('click', openRemoteModal);
+$('btn-connect-tiktok-api').addEventListener('click', connectTikTokApi);
+$('btn-connect-tiktok-cookies').addEventListener('click', () => $('tt-cookie-modal').classList.remove('hidden'));
+$('btn-start-remote').addEventListener('click', startRemoteBrowser);
+$('btn-remote-done').addEventListener('click', () => stopRemoteBrowser(true));
+$('btn-remote-stop').addEventListener('click', () => stopRemoteBrowser(false));
+$('btn-close-ttremote').addEventListener('click', () => stopRemoteBrowser(false));
 $('btn-close-ttcookie').addEventListener('click', () => $('tt-cookie-modal').classList.add('hidden'));
 $('btn-submit-ttcookie').addEventListener('click', submitTtCookies);
 $('btn-ttaccount-back').addEventListener('click', () => { stopChannelPoll(); currentTtId = null; showMineView('list'); loadMyChannels(); });

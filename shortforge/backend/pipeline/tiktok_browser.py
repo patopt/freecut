@@ -143,29 +143,47 @@ def _find_and_upload(page, video_path: str, caption: str, log: Log) -> None:
 
 
 def post_video(account: dict, video_path: str, caption: str, log: Log = lambda _m: None) -> str:
-    """Upload via a headless browser. Returns a pseudo id (no API id available)."""
+    """Upload with a real browser.
+
+    Preferred path: reuse the account's **persistent profile** (created when you
+    logged in through the dashboard's remote browser), so TikTok sees the same
+    device/session as your manual login. Falls back to an imported cookies.txt.
+    """
     from playwright.sync_api import sync_playwright
 
+    from . import tiktok_session
+
+    profile = tiktok_session.profiles_dir() / account["id"]
+    use_profile = profile.exists() and any(profile.iterdir())
     state_path = cookies_dir() / f"{account['id']}.json"
-    if not state_path.exists():
-        raise RuntimeError("No TikTok cookies stored for this account — re-add it with a cookies.txt")
+    if not use_profile and not state_path.exists():
+        raise RuntimeError(
+            "This TikTok account has no session. Open Settings → Connect a TikTok "
+            "account and log in through the remote browser.")
 
     shots = config.DATA_DIR / "tiktok_debug"
     shots.mkdir(parents=True, exist_ok=True)
+    args = ["--no-sandbox", "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled"]
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],
-        )
-        ctx = browser.new_context(
-            storage_state=str(state_path),
-            viewport={"width": 1400, "height": 1000},
-            user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
-            locale="en-US",
-        )
-        page = ctx.new_page()
+        browser = None
+        if use_profile:
+            log("Using the account's saved browser profile")
+            ctx = pw.chromium.launch_persistent_context(
+                str(profile), headless=True, args=args,
+                viewport={"width": 1280, "height": 900}, locale="en-US")
+        else:
+            log("Using imported cookies.txt")
+            browser = pw.chromium.launch(headless=True, args=args)
+            ctx = browser.new_context(
+                storage_state=str(state_path),
+                viewport={"width": 1400, "height": 1000},
+                user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+                locale="en-US",
+            )
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
         try:
             last_err = None
             for url in UPLOAD_URLS:
@@ -176,8 +194,9 @@ def post_video(account: dict, video_path: str, caption: str, log: Log = lambda _
                     if "login" in page.url:
                         raise RuntimeError("Redirected to login — cookies expired, export them again")
                     _find_and_upload(page, video_path, caption, log)
-                    # Persist any refreshed cookies for next time.
-                    ctx.storage_state(path=str(state_path))
+                    if not use_profile:
+                        # Persist any refreshed cookies for next time.
+                        ctx.storage_state(path=str(state_path))
                     return f"browser-{int(time.time())}"
                 except Exception as exc:  # noqa: BLE001
                     last_err = exc
@@ -191,4 +210,5 @@ def post_video(account: dict, video_path: str, caption: str, log: Log = lambda _
             raise RuntimeError(str(last_err) if last_err else "TikTok upload failed")
         finally:
             ctx.close()
-            browser.close()
+            if browser is not None:
+                browser.close()
