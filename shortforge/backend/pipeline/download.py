@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from .. import config
 
@@ -45,19 +45,23 @@ def download_source(url: str, job_id: str, on_progress: ProgressCb) -> dict:
         "progress_hooks": [hook],
         "retries": 3,
         "concurrent_fragment_downloads": 4,
-        # YouTube frequently rejects a single player client ("not available on
-        # this app"). Try several so one succeeds.
-        "extractor_args": {
-            "youtube": {"player_client": ["default", "tv", "web_safari", "android", "ios"]}
-        },
     }
 
-    # Datacenter/VPS IPs are often gated behind a login. If the user drops a
-    # Netscape-format cookies.txt (exported from a logged-in browser) into the
-    # data dir, use it — this is the reliable fix for "sign in to confirm".
+    # Datacenter/VPS IPs are often gated behind a login. If a Netscape
+    # cookies.txt is present (captured by the remote browser), use it — this is
+    # the reliable fix for "sign in to confirm you're not a bot".
     cookies = config.DATA_DIR / "cookies.txt"
-    if cookies.exists():
+    has_cookies = cookies.exists()
+    if has_cookies:
         ydl_opts["cookiefile"] = str(cookies)
+    else:
+        # Without cookies, forcing several player clients works around
+        # "not available on this app". These extra clients must NOT be used
+        # together with cookies: android/ios ignore them and YouTube then
+        # returns no formats at all ("Requested format is not available").
+        ydl_opts["extractor_args"] = {
+            "youtube": {"player_client": ["default", "tv", "web_safari", "android", "ios"]}
+        }
 
     # Format cascade, most-preferred first. YouTube often only offers VP9/AV1
     # (webm) video or Opus audio for a given resolution, so never pin the
@@ -69,30 +73,45 @@ def download_source(url: str, job_id: str, on_progress: ProgressCb) -> dict:
         None,  # yt-dlp's own default
     ]
 
-    info = None
-    last_error: Exception | None = None
-    for fmt in format_candidates:
-        opts = dict(ydl_opts)
-        if fmt:
-            opts["format"] = fmt
-        else:
-            opts.pop("format", None)
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-            break
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            message = str(exc).lower()
-            # Only a format problem is worth retrying; anything else (private
-            # video, bot check, network) would fail identically every time.
-            if "requested format" not in message and "format is not available" not in message:
-                raise
-            for stale in work.glob("source.*"):
-                stale.unlink(missing_ok=True)
+    def _attempt(base_opts: dict) -> tuple[Optional[dict], Optional[Exception]]:
+        last: Optional[Exception] = None
+        for fmt in format_candidates:
+            opts = dict(base_opts)
+            if fmt:
+                opts["format"] = fmt
+            else:
+                opts.pop("format", None)
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    return ydl.extract_info(url, download=True), None
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+                message = str(exc).lower()
+                # Only a format problem is worth retrying; anything else
+                # (private video, bot check, network) fails identically.
+                if "requested format" not in message and "format is not available" not in message:
+                    raise
+                for stale in work.glob("source.*"):
+                    stale.unlink(missing_ok=True)
+        return None, last
+
+    info, last_error = _attempt(ydl_opts)
+
+    # Last resort: expired/invalid cookies can make YouTube expose no formats at
+    # all. Retry once cookie-less with the multi-client workaround.
+    if info is None and has_cookies:
+        on_progress(0.0, "Retrying without cookies…")
+        fallback = {k: v for k, v in ydl_opts.items() if k != "cookiefile"}
+        fallback["extractor_args"] = {
+            "youtube": {"player_client": ["default", "tv", "web_safari", "android", "ios"]}
+        }
+        info, last_error = _attempt(fallback)
 
     if info is None:
-        raise RuntimeError(f"Download failed: {last_error}")
+        raise RuntimeError(
+            f"Download failed: {last_error}. If this keeps happening, refresh the "
+            f"YouTube cookies from Settings (remote browser) or run "
+            f"'pip install -U yt-dlp'.")
 
     # Resolve the final merged file.
     path = work / "source.mp4"

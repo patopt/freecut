@@ -36,13 +36,16 @@ def fetch_channel_shorts(url: str, start: int = 1, end: int = 50) -> dict:
         "skip_download": True,
         "playliststart": start,
         "playlistend": end,
-        "extractor_args": {
-            "youtube": {"player_client": ["default", "tv", "web_safari"]}
-        },
     }
     cookies = config.DATA_DIR / "cookies.txt"
     if cookies.exists():
+        # Do not force player clients alongside cookies (android/ios ignore
+        # them and YouTube then returns nothing); yt-dlp picks the right one.
         ydl_opts["cookiefile"] = str(cookies)
+    else:
+        ydl_opts["extractor_args"] = {
+            "youtube": {"player_client": ["default", "tv", "web_safari"]}
+        }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(target, download=False)
