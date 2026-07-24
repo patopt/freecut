@@ -21,6 +21,7 @@ from .. import db
 from . import channels as channels_mod
 from . import tiktok as tt_mod
 from . import tiktok_browser as tt_browser
+from . import tiktok_maki as tt_maki
 from . import tiktok_publish as tt_publish
 from . import youtube as yt_mod
 
@@ -192,9 +193,13 @@ def publish_due() -> None:
                     [title] + [f"#{t.replace(' ', '')}" for t in tags[:5]]).strip()
                 if (account.get("mode") or "api") == "browser":
                     logs: list[str] = []
-                    # Preferred: tiktok-uploader (cookie-based, fully automatic).
-                    pid = tt_publish.try_post(
+                    # Preferred: TiktokAutoUploader (requests-based, no browser).
+                    pid = tt_maki.try_post(
                         account, dub["path"], caption, log=logs.append)
+                    if pid is None:
+                        # Then the cookie-based browser uploader.
+                        pid = tt_publish.try_post(
+                            account, dub["path"], caption, log=logs.append)
                     if pid is None:
                         # Fall back to the in-house Playwright uploader.
                         logs.append("Falling back to the built-in uploader")

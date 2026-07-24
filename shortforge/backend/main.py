@@ -27,6 +27,7 @@ from .pipeline import captions as captions_mod
 from .pipeline import channels as channels_mod
 from .pipeline import tiktok as tiktok_mod
 from .pipeline import tiktok_browser as tiktok_browser_mod
+from .pipeline import tiktok_maki as tiktok_maki_mod
 from .pipeline import tiktok_publish as tiktok_publish_mod
 from .pipeline import tiktok_session as tiktok_session_mod
 from .pipeline import translate as translate_mod
@@ -964,6 +965,12 @@ def tiktok_accounts(_: None = Depends(require_auth)):
     out = []
     for a in db.list_tiktok_accounts():
         cookies = tiktok_publish_mod.build_cookies_list(a["id"])
+        # Keep the uploader's cookie file in sync so it's always ready.
+        if cookies:
+            try:
+                tiktok_maki_mod.sync_cookies(a["id"])
+            except Exception:  # noqa: BLE001
+                pass
         out.append({
             "id": a["id"], "name": a["display_name"], "auto_enabled": a["auto_enabled"],
             "mode": a.get("mode") or "api",

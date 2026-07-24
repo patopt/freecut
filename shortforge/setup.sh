@@ -98,6 +98,36 @@ fi
 
 mkdir -p data
 
+# --- 4b. TiktokAutoUploader (requests-based TikTok posting) ------------------
+# Needs Node.js for its signature generation.
+if ! command -v node >/dev/null 2>&1; then
+  info "Installing Node.js (required by TiktokAutoUploader)..."
+  curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO bash - >/dev/null 2>&1 \
+    && $SUDO apt-get install -y nodejs \
+    || warn "Node.js install failed; TikTok posting may not work"
+fi
+
+mkdir -p vendor
+if [ -d vendor/TiktokAutoUploader/.git ]; then
+  info "Updating TiktokAutoUploader..."
+  git -C vendor/TiktokAutoUploader pull --quiet || warn "Could not update TiktokAutoUploader"
+else
+  info "Cloning TiktokAutoUploader..."
+  git clone --depth 1 https://github.com/makiisthenes/TiktokAutoUploader.git \
+    vendor/TiktokAutoUploader || warn "Could not clone TiktokAutoUploader"
+fi
+if [ -f vendor/TiktokAutoUploader/requirements.txt ]; then
+  info "Installing TiktokAutoUploader dependencies..."
+  pip install -r vendor/TiktokAutoUploader/requirements.txt \
+    || warn "Some TiktokAutoUploader deps failed"
+fi
+if [ -f vendor/TiktokAutoUploader/package.json ] && command -v npm >/dev/null 2>&1; then
+  info "Installing TiktokAutoUploader npm packages..."
+  (cd vendor/TiktokAutoUploader && npm install --silent) \
+    || warn "npm install failed for TiktokAutoUploader"
+fi
+mkdir -p vendor/TiktokAutoUploader/CookiesDir vendor/TiktokAutoUploader/VideosDirPath
+
 # --- 5. NordVPN CLI (rotates the exit IP when YouTube/TikTok block us) -------
 if command -v nordvpn >/dev/null 2>&1; then
   info "NordVPN CLI already installed."
