@@ -22,13 +22,22 @@ from .. import config
 Log = Callable[[str], None]
 
 
-def run_without_event_loop(fn: Callable[[], object]) -> object:
+# Budgets are nested: uploader (10m) + fallback (8m) = 18m, which stays under
+# the publish watchdog (20m) so the two can't fight over the same row.
+UPLOAD_TIMEOUT = 10 * 60
+FALLBACK_TIMEOUT = 8 * 60
+
+
+def run_without_event_loop(fn: Callable[[], object], timeout: float = UPLOAD_TIMEOUT) -> object:
     """Run `fn` on a fresh thread that provably has no running asyncio loop.
 
     tiktok-uploader (and our fallback) use Playwright's **sync** API, which
     refuses to start when asyncio.get_running_loop() succeeds — the
     "Playwright Sync API inside the asyncio loop" error. A brand-new thread
     never has a running loop, so this makes the call safe from anywhere.
+
+    The join is bounded: a browser that hangs must not freeze the publish loop
+    forever (that is what left videos stuck in "publishing").
     """
     box: dict[str, object] = {}
 
@@ -40,7 +49,11 @@ def run_without_event_loop(fn: Callable[[], object]) -> object:
 
     thread = threading.Thread(target=runner, name="playwright-sync", daemon=True)
     thread.start()
-    thread.join()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise TimeoutError(
+            f"The browser upload did not finish within {int(timeout / 60)} minutes. "
+            "It was abandoned; retry or publish manually.")
     if "error" in box:
         raise box["error"]  # type: ignore[misc]
     return box.get("value")
@@ -94,6 +107,23 @@ def has_session(account_id: str) -> bool:
     return bool(build_cookies_list(account_id))
 
 
+def _missing_browser() -> str:
+    """Return an explanatory message if Playwright's Chromium isn't installed."""
+    from pathlib import Path as _P
+
+    roots = [_P.home() / ".cache/ms-playwright"]
+    import os as _os
+
+    env_root = _os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if env_root:
+        roots.insert(0, _P(env_root))
+    for root in roots:
+        if root.is_dir() and any(root.glob("chromium*/chrome-linux/chrome")):
+            return ""
+    return ("Playwright's Chromium is not installed. Run on the VPS: "
+            "source venv/bin/activate && python -m playwright install chromium")
+
+
 def available() -> bool:
     try:
         import tiktok_uploader  # noqa: F401
@@ -114,6 +144,12 @@ def post_video(account: dict, video_path: str, description: str,
             "Settings (remote browser login).")
     if not Path(video_path).exists():
         raise RuntimeError(f"Video file is missing: {video_path}")
+
+    # Fail fast with a clear message if the browser was never installed —
+    # otherwise Playwright can sit there trying to resolve it.
+    missing = _missing_browser()
+    if missing:
+        raise RuntimeError(missing)
 
     log(f"Uploading with tiktok-uploader ({len(cookies)} cookies)…")
     kwargs = {

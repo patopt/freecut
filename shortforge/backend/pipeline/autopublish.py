@@ -134,7 +134,9 @@ def run_auto_enqueue(refresh_sources: bool) -> None:
             pass
 
 
-PUBLISH_TIMEOUT = 45 * 60  # a stuck "publishing" row must not hang forever
+# Slightly above the uploader's own 15-min cap so the row is freed shortly
+# after the upload gives up, not 45 minutes later.
+PUBLISH_TIMEOUT = 20 * 60
 
 
 def reap_stuck_publishes() -> None:
@@ -147,8 +149,22 @@ def reap_stuck_publishes() -> None:
                 error="Publishing timed out. Use 'Publish manually' to finish it.")
 
 
+def _watchdog_loop() -> None:
+    """Independent thread: a blocked publish must still be reaped.
+
+    reap_stuck_publishes() used to run inside the publish loop, so when an
+    upload hung the loop was blocked and the watchdog never fired — which is
+    exactly how rows stayed in "publishing" forever.
+    """
+    while not _stop.is_set():
+        try:
+            reap_stuck_publishes()
+        except Exception:  # noqa: BLE001
+            pass
+        _stop.wait(60.0)
+
+
 def publish_due() -> None:
-    reap_stuck_publishes()
     for item in db.due_publishes(time.time()):
         dub = db.get_dub(item["dub_id"])
         if not dub:
@@ -244,12 +260,19 @@ def _loop() -> None:
         _stop.wait(60.0)
 
 
+_watchdog: threading.Thread | None = None
+
+
 def start_scheduler() -> None:
-    global _thread
+    global _thread, _watchdog
     if _thread and _thread.is_alive():
         return
     _thread = threading.Thread(target=_loop, name="shortforge-autopublish", daemon=True)
     _thread.start()
+    if not (_watchdog and _watchdog.is_alive()):
+        _watchdog = threading.Thread(target=_watchdog_loop,
+                                     name="shortforge-publish-watchdog", daemon=True)
+        _watchdog.start()
 
 
 def stop_scheduler() -> None:
