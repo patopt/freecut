@@ -94,8 +94,13 @@ def enqueue_channel(yt_channel: dict) -> int:
     mode = cfg.get("cadence_mode", "optimized")
     times = OPTIMIZED_TIMES if mode == "optimized" else (cfg.get("times") or OPTIMIZED_TIMES)
     jitter = JITTER_MIN if mode == "optimized" else 0
+    first_run = db.last_publish_time(ytid) == 0
     start_after = max(db.last_publish_time(ytid), time.time())
     slots = compute_next_slots(len(new_dubs), times, start_after, jitter)
+    # On the very first activation, publish the first clip ~2 min out so the
+    # user sees it work, then follow the normal cadence for the rest.
+    if first_run and slots:
+        slots[0] = time.time() + 120
     for did, ts in zip(new_dubs, slots):
         db.enqueue_publish(did, ytid, ts)
     return len(new_dubs)

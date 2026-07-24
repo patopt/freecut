@@ -325,10 +325,15 @@ function renderYtItems(items) {
       const orig = it.views_original != null ? ` vs ${it.views_original} orig` : '';
       views = ` · 👁 ${it.views_translated}${orig}`;
     }
+    const dubState = it.dub_status && it.dub_status !== 'done' ? ` · dub: ${STAGE_LABEL[it.dub_status] || it.dub_status}` : '';
     el.innerHTML = `<div class="job-info"><div class="job-title">${escapeHtml(it.title || 'Short')} <small class="muted">${it.lang.toUpperCase()}</small></div>
-      <div class="job-sub">${STAGE_LABEL[it.status] || it.status} · ${when}${views}${it.error ? ' · ' + escapeHtml(it.error) : ''}</div></div>
+      <div class="job-sub">${STAGE_LABEL[it.status] || it.status} · ${when}${dubState}${views}${it.error ? ' · ' + escapeHtml(it.error) : ''}</div></div>
       <span class="badge ${cls}">${it.status}</span>`;
-    if (it.yt_video_id) el.style.cursor = 'pointer', el.addEventListener('click', () => window.open(`https://youtu.be/${it.yt_video_id}`, '_blank'));
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', () => {
+      if (it.yt_video_id) window.open(`https://youtu.be/${it.yt_video_id}`, '_blank');
+      else if (it.dub_id) openDubModal(it.dub_id);  // inspect voice / log / errors
+    });
     wrap.appendChild(el);
   }
 }

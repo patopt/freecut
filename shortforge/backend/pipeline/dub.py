@@ -75,6 +75,10 @@ def run_dub(dub_id: str) -> None:
             work, work / "dub_audio.m4a",
             log=lambda m: db.append_dub_log(dub_id, m),
         )
+        voice_dur = tts._probe_duration(audio_path)
+        db.append_dub_log(dub_id, f"Voice track: {voice_dur:.1f}s")
+        if voice_dur < 0.2:
+            raise RuntimeError("Voice track is empty — check the TTS log above.")
 
         # 5. Mux over the original video --------------------------------------
         db.update_dub(dub_id, status="rendering", stage="Muxing", progress=90)
@@ -89,11 +93,16 @@ def run_dub(dub_id: str) -> None:
         if music_id:
             track = db.get_music(music_id)
             if track and track.get("path"):
-                try:
-                    audio_mix.apply_music_in_place(str(out_file), track["path"], gain=0.16)
-                    db.append_dub_log(dub_id, "Background music mixed in")
-                except Exception as exc:  # noqa: BLE001
-                    db.append_dub_log(dub_id, f"Music mix skipped: {exc}")
+                if not Path(track["path"]).exists():
+                    db.append_dub_log(dub_id, "Music file missing on disk — skipped")
+                else:
+                    try:
+                        audio_mix.apply_music_in_place(str(out_file), track["path"], gain=0.16)
+                        db.append_dub_log(dub_id, f"Background music mixed in ({track['name']})")
+                    except Exception as exc:  # noqa: BLE001
+                        db.append_dub_log(dub_id, f"Music mix skipped: {exc}")
+            else:
+                db.append_dub_log(dub_id, "Selected music not found — skipped")
 
         subprocess.run(
             ["ffmpeg", "-y", "-ss", "1", "-i", str(out_file), "-frames:v", "1",

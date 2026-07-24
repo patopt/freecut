@@ -91,13 +91,18 @@ def _kokoro_synth(text: str, lang: str, out_path: Path, log: Log) -> bool:
     samples, sr = kokoro.create(text, voice=voice, speed=1.0, lang=klang)
     import numpy as np
 
-    pcm = (np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2")
+    arr = np.asarray(samples, dtype="float32")
+    # Guard against silent/empty output (e.g. espeak-ng missing): treat it as a
+    # failure so we fall back instead of producing a muted video.
+    if arr.size == 0 or float(np.max(np.abs(arr))) < 1e-4:
+        raise RuntimeError("Kokoro returned empty audio (is espeak-ng installed?)")
+    pcm = (np.clip(arr, -1.0, 1.0) * 32767.0).astype("<i2")
     with wave.open(str(out_path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(int(sr))
         w.writeframes(pcm.tobytes())
-    return out_path.exists() and out_path.stat().st_size > 0
+    return out_path.exists() and out_path.stat().st_size > 1000
 
 
 # --- edge-tts fallback engine ----------------------------------------------
@@ -137,8 +142,11 @@ def build_dub_track(
     log: Log = lambda _m: None,
 ) -> Path:
     workdir.mkdir(parents=True, exist_ok=True)
+    engine = (db.effective("tts_engine") or "kokoro").lower()
+    log(f"TTS engine: {engine}; voice lang: {lang}; {len(segments)} segments")
 
     clips: list[tuple[Path, float, float]] = []  # (audio, start, fit_tempo)
+    failures = 0
     for i, seg in enumerate(segments):
         text = (translations[i] if i < len(translations) else "").strip()
         if not text:
@@ -147,9 +155,11 @@ def build_dub_track(
         try:
             ok = _synth_segment(text, lang, base, log)
         except Exception as exc:  # noqa: BLE001
-            log(f"Segment {i} TTS error: {exc}")
+            if failures == 0:
+                log(f"TTS error on segment {i}: {exc}")
             ok = False
         if not ok:
+            failures += 1
             continue
         audio = base.with_suffix(".wav")
         if not audio.exists():
@@ -162,8 +172,12 @@ def build_dub_track(
         tempo = min(2.0, dur / slot) if dur > slot else 1.0
         clips.append((audio, seg.start, tempo))
 
+    log(f"TTS synthesized {len(clips)}/{len(segments)} segments ({failures} failed)")
     if not clips:
-        raise RuntimeError("TTS produced no audio segments")
+        raise RuntimeError(
+            "TTS produced no audio. If using Kokoro, install espeak-ng on the "
+            "server (apt install -y espeak-ng); or switch the voice engine to "
+            "edge-tts in Settings.")
 
     # One ffmpeg call: fit + delay each clip, mix onto a common timeline.
     inputs: list[str] = []
