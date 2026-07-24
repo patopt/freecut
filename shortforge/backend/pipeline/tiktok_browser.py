@@ -261,8 +261,13 @@ def post_video(account: dict, video_path: str, caption: str, log: Log = lambda _
         tiktok_session.clean_profile_locks(profile)
 
     try:
-        return _run_upload(video_path, caption, log, profile, use_profile,
-                           state_path, shots, args)
+        # Sync Playwright refuses to start inside a running asyncio loop, so
+        # always run it on a clean thread (see tiktok_publish for details).
+        from .tiktok_publish import run_without_event_loop
+
+        return run_without_event_loop(
+            lambda: _run_upload(video_path, caption, log, profile, use_profile,
+                                state_path, shots, args))
     finally:
         if use_profile:
             tiktok_session.clean_profile_locks(profile)

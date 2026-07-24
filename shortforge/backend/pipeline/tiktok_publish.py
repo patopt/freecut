@@ -12,6 +12,7 @@ a fallback for when this one can't run.
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -19,6 +20,30 @@ from typing import Callable, Optional
 from .. import config
 
 Log = Callable[[str], None]
+
+
+def run_without_event_loop(fn: Callable[[], object]) -> object:
+    """Run `fn` on a fresh thread that provably has no running asyncio loop.
+
+    tiktok-uploader (and our fallback) use Playwright's **sync** API, which
+    refuses to start when asyncio.get_running_loop() succeeds — the
+    "Playwright Sync API inside the asyncio loop" error. A brand-new thread
+    never has a running loop, so this makes the call safe from anywhere.
+    """
+    box: dict[str, object] = {}
+
+    def runner() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller
+            box["error"] = exc
+
+    thread = threading.Thread(target=runner, name="playwright-sync", daemon=True)
+    thread.start()
+    thread.join()
+    if "error" in box:
+        raise box["error"]  # type: ignore[misc]
+    return box.get("value")
 
 
 def _storage_state_path(account_id: str) -> Path:
@@ -101,7 +126,8 @@ def post_video(account: dict, video_path: str, description: str,
     if schedule is not None:
         kwargs["schedule"] = schedule
 
-    failed = upload_video(**kwargs)
+    # Sync Playwright must not see a running asyncio loop — isolate the call.
+    failed = run_without_event_loop(lambda: upload_video(**kwargs))
     # The library returns the list of videos it could NOT upload.
     if failed:
         raise RuntimeError(

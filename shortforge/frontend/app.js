@@ -774,7 +774,12 @@ async function renderTtAccounts() {
   for (const a of accounts) {
     const row = document.createElement('div'); row.className = 'music-row';
     const badge = a.mode === 'browser' ? 'browser' : 'API';
-    row.innerHTML = `<span>♪ ${escapeHtml(a.name)} <small class="muted">(${badge})</small></span><button class="row-del" title="Disconnect">🗑</button>`;
+    const ready = a.mode === 'browser'
+      ? (a.auto_ready
+          ? `<small class="score">auto-upload ready · ${a.cookie_count} cookies</small>`
+          : `<small class="muted" style="color:var(--danger)">no cookies — reconnect</small>`)
+      : '';
+    row.innerHTML = `<span>♪ ${escapeHtml(a.name)} <small class="muted">(${badge})</small><br/>${ready}</span><button class="row-del" title="Disconnect">🗑</button>`;
     row.querySelector('.row-del').addEventListener('click', async () => {
       if (!confirm('Disconnect this TikTok account?')) return;
       try { await api(`/api/tiktok/accounts/${a.id}`, { method: 'DELETE' }); } catch (_) {}

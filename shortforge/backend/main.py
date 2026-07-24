@@ -27,6 +27,7 @@ from .pipeline import captions as captions_mod
 from .pipeline import channels as channels_mod
 from .pipeline import tiktok as tiktok_mod
 from .pipeline import tiktok_browser as tiktok_browser_mod
+from .pipeline import tiktok_publish as tiktok_publish_mod
 from .pipeline import tiktok_session as tiktok_session_mod
 from .pipeline import translate as translate_mod
 from .pipeline import vpn as vpn_mod
@@ -960,10 +961,17 @@ async def tiktok_add_browser(
 
 @app.get("/api/tiktok/accounts")
 def tiktok_accounts(_: None = Depends(require_auth)):
-    return {"accounts": [
-        {"id": a["id"], "name": a["display_name"], "auto_enabled": a["auto_enabled"],
-         "mode": a.get("mode") or "api"}
-        for a in db.list_tiktok_accounts()]}
+    out = []
+    for a in db.list_tiktok_accounts():
+        cookies = tiktok_publish_mod.build_cookies_list(a["id"])
+        out.append({
+            "id": a["id"], "name": a["display_name"], "auto_enabled": a["auto_enabled"],
+            "mode": a.get("mode") or "api",
+            # So you can see at a glance whether auto-upload will work.
+            "cookie_count": len(cookies),
+            "auto_ready": bool(cookies),
+        })
+    return {"accounts": out}
 
 
 @app.delete("/api/tiktok/accounts/{account_id}")
