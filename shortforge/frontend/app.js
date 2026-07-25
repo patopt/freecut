@@ -1262,6 +1262,15 @@ async function openPicker(platform) {
   updatePickCount();
 }
 
+function pickJump() {
+  // Videos are listed newest-first, so the oldest one sits at the bottom.
+  const list = $('pick-list');
+  const btn = $('btn-pick-jump');
+  const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 20;
+  list.scrollTo({ top: atBottom ? 0 : list.scrollHeight, behavior: 'smooth' });
+  btn.textContent = atBottom ? '⤓ Oldest' : '⤒ Newest';
+}
+
 function updatePickCount() {
   $('pick-count').textContent = `${pickSelected.size} selected`;
 }
@@ -1352,6 +1361,12 @@ $('btn-close-pick').addEventListener('click', () => $('pick-modal').classList.ad
 $('btn-pick-all').addEventListener('click', () => setAllPicked(true));
 $('btn-pick-none').addEventListener('click', () => setAllPicked(false));
 $('btn-pick-save').addEventListener('click', savePicker);
+$('btn-pick-jump').addEventListener('click', pickJump);
+$('pick-list').addEventListener('scroll', () => {
+  const l = $('pick-list');
+  const atBottom = l.scrollTop + l.clientHeight >= l.scrollHeight - 20;
+  $('btn-pick-jump').textContent = atBottom ? '⤒ Newest' : '⤓ Oldest';
+});
 $('btn-yt-publish-now').addEventListener('click', () => publishNow(currentYtChannelId, reloadYtChannel));
 $('btn-tt-publish-now').addEventListener('click', () => publishNow(currentTtId, reloadTtAccount));
 $('yt-cadence').addEventListener('change', toggleCadenceFields);
