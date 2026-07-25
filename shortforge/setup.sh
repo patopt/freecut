@@ -121,10 +121,21 @@ if [ -f vendor/TiktokAutoUploader/requirements.txt ]; then
   pip install -r vendor/TiktokAutoUploader/requirements.txt \
     || warn "Some TiktokAutoUploader deps failed"
 fi
-if [ -f vendor/TiktokAutoUploader/package.json ] && command -v npm >/dev/null 2>&1; then
-  info "Installing TiktokAutoUploader npm packages..."
-  (cd vendor/TiktokAutoUploader && npm install --silent) \
-    || warn "npm install failed for TiktokAutoUploader"
+if command -v npm >/dev/null 2>&1; then
+  # The signature generator lives in tiktok_uploader/tiktok-signature/ and MUST
+  # have its own node_modules — installing only at the repo root leaves it
+  # broken with MODULE_NOT_FOUND and uploads silently do nothing.
+  for pkg in vendor/TiktokAutoUploader \
+             vendor/TiktokAutoUploader/tiktok_uploader/tiktok-signature; do
+    if [ -f "$pkg/package.json" ]; then
+      info "Installing npm packages in $pkg ..."
+      (cd "$pkg" && npm install --silent) || warn "npm install failed in $pkg"
+    fi
+  done
+  SIG_DIR=vendor/TiktokAutoUploader/tiktok_uploader/tiktok-signature
+  if [ -d "$SIG_DIR" ] && [ ! -d "$SIG_DIR/node_modules" ]; then
+    warn "tiktok-signature has no node_modules — TikTok uploads will fail."
+  fi
 fi
 mkdir -p vendor/TiktokAutoUploader/CookiesDir vendor/TiktokAutoUploader/VideosDirPath
 

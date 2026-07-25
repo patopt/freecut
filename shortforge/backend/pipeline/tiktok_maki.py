@@ -103,11 +103,20 @@ def has_session(account_id: str) -> bool:
     return bool(build_cookies(account_id))
 
 
+SIGNATURE_DIR = "tiktok_uploader/tiktok-signature"
+
+
 def ready() -> str:
     """Empty string when usable, else why not."""
     if not installed():
         return ("TiktokAutoUploader is not installed. Run ./setup.sh on the VPS "
                 "(it clones and prepares it).")
+    if not shutil.which("node"):
+        return "Node.js is not installed — TikTok uploads need it. Run ./setup.sh."
+    sig = VENDOR_DIR / SIGNATURE_DIR
+    if sig.is_dir() and not (sig / "node_modules").is_dir():
+        return (f"The TikTok signature helper has no node_modules. Run: "
+                f"cd {VENDOR_DIR / SIGNATURE_DIR} && npm install")
     return ""
 
 
@@ -160,10 +169,25 @@ def post_video(account: dict, video_path: str, title: str,
     log(f"exit={proc.returncode} :: {tail[-300:]}")
     if proc.returncode != 0:
         raise RuntimeError(f"TiktokAutoUploader failed (exit {proc.returncode}): {tail}")
+
     lowered = output.lower()
-    if "traceback" in lowered or ("error" in lowered and "success" not in lowered):
-        raise RuntimeError(f"TiktokAutoUploader reported an error: {tail}")
-    log("TiktokAutoUploader reported success")
+    # Hard failures that still exit 0 — notably the Node signature helper
+    # missing its node_modules, which silently uploads nothing.
+    if "module_not_found" in lowered or "cannot find module" in lowered:
+        raise RuntimeError(
+            "The TikTok signature helper is missing its Node packages. On the VPS run: "
+            "cd vendor/TiktokAutoUploader/tiktok_uploader/tiktok-signature && npm install"
+            f" — {tail}")
+    for marker in ("traceback", "exception", "error:", "failed", "not found on system"):
+        if marker in lowered:
+            raise RuntimeError(f"TiktokAutoUploader reported an error: {tail}")
+
+    # Require positive proof of an upload: exit code 0 alone is not enough,
+    # that is how a failed run was previously recorded as "published".
+    if not any(m in lowered for m in ("uploaded", "success", "posted", "published")):
+        raise RuntimeError(
+            f"TiktokAutoUploader finished without confirming an upload: {tail}")
+    log("TiktokAutoUploader confirmed the upload")
     return f"tau-{int(time.time())}"
 
 
