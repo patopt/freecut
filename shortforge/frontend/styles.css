@@ -213,6 +213,9 @@ label input, label select { margin-top: 6px; }
 .yt-badge { background: rgba(255,0,0,0.15); color: #ff6b6b; }
 .tt-badge { background: rgba(37,244,238,0.14); color: #25f4ee; }
 
+.linky { cursor: pointer; transition: color 0.2s var(--ease); }
+.linky:hover { color: var(--accent); text-decoration: underline; }
+
 /* ---------- Progress ---------- */
 .progress { height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; margin: 12px 0; }
 .progress-bar {

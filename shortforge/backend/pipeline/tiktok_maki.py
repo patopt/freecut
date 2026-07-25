@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import pickle
+import re
 import shutil
 import subprocess
 import sys
@@ -188,7 +189,22 @@ def post_video(account: dict, video_path: str, title: str,
         raise RuntimeError(
             f"TiktokAutoUploader finished without confirming an upload: {tail}")
     log("TiktokAutoUploader confirmed the upload")
-    return f"tau-{int(time.time())}"
+    # Prefer the real video id/URL when the CLI prints one, so the dashboard can
+    # link straight to the post instead of a synthetic placeholder.
+    found = _extract_video_ref(output)
+    return found or f"tau-{int(time.time())}"
+
+
+def _extract_video_ref(output: str) -> str:
+    """Pull a TikTok video URL or numeric id out of the uploader's output."""
+    url = re.search(r"https?://(?:www\.)?tiktok\.com/[^\s'\"]+/video/\d+", output)
+    if url:
+        return url.group(0)
+    short = re.search(r"https?://(?:vm|vt)\.tiktok\.com/[\w]+", output)
+    if short:
+        return short.group(0)
+    vid = re.search(r"\b(\d{18,20})\b", output)  # TikTok ids are ~19 digits
+    return vid.group(1) if vid else ""
 
 
 def try_post(account: dict, video_path: str, title: str,

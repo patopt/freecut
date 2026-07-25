@@ -906,6 +906,24 @@ def tiktok_disconnect(account_id: str, _: None = Depends(require_auth)):
     return {"ok": True}
 
 
+
+def _tiktok_profile_url(account: dict) -> str:
+    handle = (account.get("display_name") or "").strip().lstrip("@")
+    return f"https://www.tiktok.com/@{handle}" if handle else "https://www.tiktok.com/"
+
+
+def _tiktok_video_url(ref: str, account: dict) -> str:
+    """Best-effort link to a post; falls back to the profile page."""
+    ref = (ref or "").strip()
+    if ref.startswith("http"):
+        return ref
+    if ref.isdigit():
+        handle = (account.get("display_name") or "").strip().lstrip("@")
+        return f"https://www.tiktok.com/@{handle}/video/{ref}" if handle else \
+               f"https://www.tiktok.com/video/{ref}"
+    return ""
+
+
 @app.get("/api/tiktok/accounts/{account_id}")
 def tiktok_account_detail(account_id: str, _: None = Depends(require_auth)):
     acc = db.get_tiktok_account(account_id)
@@ -919,9 +937,11 @@ def tiktok_account_detail(account_id: str, _: None = Depends(require_auth)):
             "yt_video_id": p["yt_video_id"], "error": p["error"], "dub_id": p["dub_id"],
             "dub_status": dub.get("status", ""), "lang": dub.get("lang", ""),
             "title": dub.get("tr_title") or dub.get("title") or "",
+            "video_url": _tiktok_video_url(p["yt_video_id"], acc),
         })
     return {
         "id": acc["id"], "title": acc["display_name"], "thumb": acc["avatar"],
+        "profile_url": _tiktok_profile_url(acc),
         "auto_enabled": acc["auto_enabled"], "auto_config": acc["auto_config"],
         "stats": {
             "published": db.count_publishes(account_id, "published"),

@@ -977,7 +977,13 @@ async function openTtAccount(id) {
 async function reloadTtAccount() {
   if (!currentTtId) return;
   let d; try { d = await api(`/api/tiktok/accounts/${currentTtId}`); } catch (_) { return; }
-  $('ttaccount-name').textContent = '♪ ' + (d.title || 'TikTok');
+  const nameEl = $('ttaccount-name');
+  nameEl.textContent = '♪ ' + (d.title || 'TikTok');
+  if (d.profile_url) {
+    nameEl.classList.add('linky');
+    nameEl.title = 'Open on TikTok';
+    nameEl.onclick = () => window.open(d.profile_url, '_blank', 'noopener');
+  }
   $('tt-stat-published').textContent = d.stats.published;
   $('tt-stat-pending').textContent = d.stats.pending;
   $('tt-stat-errors').textContent = d.stats.errors;
