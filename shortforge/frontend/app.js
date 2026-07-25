@@ -1219,6 +1219,7 @@ async function openPicker(platform) {
   const prefix = platform === 'tiktok' ? 'tt' : 'yt';
   const sources = checkedSources(prefix);
   const list = $('pick-list');
+  list.className = 'checklist';
   $('pick-msg').textContent = '';
   $('pick-modal').classList.remove('hidden');
   if (!sources.length) {
@@ -1234,19 +1235,29 @@ async function openPicker(platform) {
     } catch (_) {}
   }
   if (!rows.length) { list.innerHTML = '<span class="muted">No videos found in those channels.</span>'; return; }
+  list.className = 'shorts-grid pick-grid';
   list.innerHTML = '';
   for (const s of rows) {
-    const row = document.createElement('label');
-    row.className = 'check-row';
-    const on = pickSelected.has(s.id) ? 'checked' : '';
-    row.innerHTML = `<input type="checkbox" value="${s.id}" ${on} />
-      <span style="flex:1;min-width:0"><span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.title || 'Short')}</span>
-      <small class="muted">${escapeHtml(s.channel)}${s.duration ? ' · ' + Math.round(s.duration) + 's' : ''}</small></span>`;
-    row.querySelector('input').addEventListener('change', (e) => {
-      if (e.target.checked) pickSelected.add(s.id); else pickSelected.delete(s.id);
+    const card = document.createElement('div');
+    card.className = 'short pick-card' + (pickSelected.has(s.id) ? ' picked' : '');
+    card.dataset.id = s.id;
+    card.innerHTML = `
+      <div class="pick-thumb-wrap">
+        <img class="thumb" src="${escapeHtml(s.thumb || '')}" loading="lazy"
+             onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb thumb-fallback',textContent:'▶'}))" />
+        <span class="pick-tick">✓</span>
+      </div>
+      <div class="short-body">
+        <div class="short-title">${escapeHtml(s.title || 'Short')}</div>
+        <div class="short-meta"><span class="muted" style="font-size:.7rem">${escapeHtml(s.channel)}</span>
+        ${s.duration ? `<span class="muted" style="font-size:.7rem">${Math.round(s.duration)}s</span>` : ''}</div>
+      </div>`;
+    card.addEventListener('click', () => {
+      if (pickSelected.has(s.id)) { pickSelected.delete(s.id); card.classList.remove('picked'); }
+      else { pickSelected.add(s.id); card.classList.add('picked'); }
       updatePickCount();
     });
-    list.appendChild(row);
+    list.appendChild(card);
   }
   updatePickCount();
 }
@@ -1256,9 +1267,11 @@ function updatePickCount() {
 }
 
 function setAllPicked(on) {
-  $('pick-list').querySelectorAll('input[type=checkbox]').forEach((cb) => {
-    cb.checked = on;
-    if (on) pickSelected.add(cb.value); else pickSelected.delete(cb.value);
+  $('pick-list').querySelectorAll('.pick-card').forEach((card) => {
+    card.classList.toggle('picked', on);
+    const id = card.dataset.id;
+    if (!id) return;
+    if (on) pickSelected.add(id); else pickSelected.delete(id);
   });
   updatePickCount();
 }
