@@ -185,9 +185,12 @@
             </div>
             <div class="options">
               <label>Videos to translate
-                <select id="yt-selection"><option value="all">All</option><option value="number">A number</option><option value="manual">Manual pick</option></select>
+                <select id="yt-selection"><option value="all">All</option><option value="number">A number</option><option value="manual">Custom — pick videos</option></select>
               </label>
               <label id="yt-count-wrap" style="display:none">How many<input type="number" id="yt-count" value="30" min="1" /></label>
+              <label id="yt-pick-wrap" style="display:none">Selection
+                <button id="btn-yt-pick" class="btn small block" style="margin-top:6px">🎬 Choose videos</button>
+              </label>
               <label>Privacy<select id="yt-privacy"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label>
               <label>Captions<select id="yt-captions"><option value="">— None —</option></select></label>
               <label>Music<select id="yt-music"><option value="">— Default —</option></select></label>
@@ -233,9 +236,12 @@
             </div>
             <div class="options">
               <label>Videos to translate
-                <select id="tt-selection"><option value="all">All</option><option value="number">A number</option></select>
+                <select id="tt-selection"><option value="all">All</option><option value="number">A number</option><option value="manual">Custom — pick videos</option></select>
               </label>
               <label id="tt-count-wrap" style="display:none">How many<input type="number" id="tt-count" value="30" min="1" /></label>
+              <label id="tt-pick-wrap" style="display:none">Selection
+                <button id="btn-tt-pick" class="btn small block" style="margin-top:6px">🎬 Choose videos</button>
+              </label>
               <label>Post mode
                 <select id="tt-postmode"><option value="direct">Direct post</option><option value="inbox">To drafts</option></select>
               </label>
@@ -495,6 +501,21 @@
       <label>cookies.txt<input type="file" id="tt-cookie-file" accept=".txt,.json" /></label>
       <button id="btn-submit-ttcookie" class="btn primary block">Connect account</button>
       <div id="tt-cookie-msg" class="muted"></div>
+    </div>
+  </div>
+
+  <!-- SOURCE VIDEO PICKER -->
+  <div id="pick-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><h2>Choose videos to translate</h2><button id="btn-close-pick" class="icon-btn">✕</button></div>
+      <div class="detail-meta">
+        <span id="pick-count" class="badge active">0 selected</span>
+        <button id="btn-pick-all" class="btn small">Select all</button>
+        <button id="btn-pick-none" class="btn small">Clear</button>
+      </div>
+      <div id="pick-list" class="checklist" style="max-height:52vh"></div>
+      <button id="btn-pick-save" class="btn primary block">Save selection</button>
+      <div id="pick-msg" class="muted"></div>
     </div>
   </div>
 

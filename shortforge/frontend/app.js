@@ -373,6 +373,7 @@ async function reloadYtChannel() {
   if (cfg.privacy) $('yt-privacy').value = cfg.privacy;
   if (cfg.per_day) $('yt-perday').value = cfg.per_day;
   if (cfg.times) $('yt-times').value = (cfg.times || []).join(',');
+  pickSelected = new Set(cfg.selected_short_ids || []);
   if (cfg.caption_style !== undefined) $('yt-captions').value = cfg.caption_style || '';
   if (cfg.music_id !== undefined) $('yt-music').value = cfg.music_id || '';
   for (const scid of (cfg.source_channel_ids || [])) { const cb = $(`src-${scid}`); if (cb) cb.checked = true; }
@@ -419,7 +420,11 @@ function renderYtItems(items) {
 }
 
 function toggleCadenceFields() { $('yt-manual-cadence').style.display = $('yt-cadence').value === 'manual' ? 'flex' : 'none'; }
-function toggleSelectionFields() { $('yt-count-wrap').style.display = $('yt-selection').value === 'number' ? 'block' : 'none'; }
+function toggleSelectionFields() {
+  const v = $('yt-selection').value;
+  $('yt-count-wrap').style.display = v === 'number' ? 'block' : 'none';
+  $('yt-pick-wrap').style.display = v === 'manual' ? 'block' : 'none';
+}
 
 async function saveAuto() {
   const sources = Array.from($('yt-sources').querySelectorAll('input:checked')).map((c) => c.value);
@@ -430,6 +435,7 @@ async function saveAuto() {
     per_day: parseInt($('yt-perday').value, 10),
     times: $('yt-times').value.split(',').map((t) => t.trim()).filter(Boolean),
     selection: $('yt-selection').value,
+    selected_short_ids: Array.from(pickSelected),
     count: parseInt($('yt-count').value, 10) || 30,
     privacy: $('yt-privacy').value,
     caption_style: $('yt-captions').value,
@@ -632,7 +638,7 @@ async function loadCaptionStyles() {
     if (prev) sel.value = prev;
   }
   // Selectors where captions are optional.
-  for (const id of ['dub-captions', 'set-default-dub-captions', 'yt-captions']) {
+  for (const id of ['dub-captions', 'set-default-dub-captions', 'yt-captions', 'tt-captions']) {
     const sel = $(id); if (!sel) continue;
     const prev = sel.value;
     sel.innerHTML = '<option value="">— None —</option>';
@@ -649,7 +655,7 @@ async function loadCaptionStyles() {
 async function loadMusicOptions() {
   let tracks = [];
   try { tracks = (await api('/api/music')).music; } catch (_) {}
-  for (const selId of ['opt-music', 'dub-music', 'set-default-music']) {
+  for (const selId of ['opt-music', 'dub-music', 'set-default-music', 'yt-music', 'tt-music']) {
     const sel = $(selId); if (!sel) continue;
     const prev = sel.value;
     sel.innerHTML = '<option value="">— None —</option>';
@@ -984,6 +990,7 @@ async function reloadTtAccount() {
   if (cfg.post_mode) $('tt-postmode').value = cfg.post_mode;
   if (cfg.privacy) $('tt-privacy').value = cfg.privacy;
   if (cfg.times) $('tt-times').value = (cfg.times || []).join(',');
+  pickSelected = new Set(cfg.selected_short_ids || []);
   if (cfg.caption_style !== undefined) $('tt-captions').value = cfg.caption_style || '';
   if (cfg.music_id !== undefined) $('tt-music').value = cfg.music_id || '';
   for (const scid of (cfg.source_channel_ids || [])) { const cb = $(`ttsrc-${scid}`); if (cb) cb.checked = true; }
@@ -1032,7 +1039,8 @@ async function saveTtAuto() {
     source_channel_ids: sources, target_lang: $('tt-lang').value,
     cadence_mode: $('tt-cadence').value,
     times: $('tt-times').value.split(',').map((t) => t.trim()).filter(Boolean),
-    selection: $('tt-selection').value, count: parseInt($('tt-count').value, 10) || 30,
+    selection: $('tt-selection').value, selected_short_ids: Array.from(pickSelected),
+    count: parseInt($('tt-count').value, 10) || 30,
     post_mode: $('tt-postmode').value, privacy: $('tt-privacy').value,
     caption_style: $('tt-captions').value, music_id: $('tt-music').value,
   };
@@ -1196,6 +1204,70 @@ async function saveSettings() {
   } catch (e) { $('settings-msg').textContent = e.message; }
 }
 
+
+// ===================== SOURCE VIDEO PICKER (Custom selection) =============
+
+let pickSelected = new Set();
+let pickPlatform = 'youtube';
+
+function checkedSources(prefix) {
+  return Array.from(document.querySelectorAll(`#${prefix}-sources input:checked`)).map((c) => c.value);
+}
+
+async function openPicker(platform) {
+  pickPlatform = platform;
+  const prefix = platform === 'tiktok' ? 'tt' : 'yt';
+  const sources = checkedSources(prefix);
+  const list = $('pick-list');
+  $('pick-msg').textContent = '';
+  $('pick-modal').classList.remove('hidden');
+  if (!sources.length) {
+    list.innerHTML = '<span class="muted">Tick at least one source channel first.</span>';
+    return;
+  }
+  list.innerHTML = '<span class="muted">Loading videos…</span>';
+  const rows = [];
+  for (const scid of sources) {
+    try {
+      const d = await api(`/api/channels/${scid}`);
+      for (const s of (d.shorts || [])) rows.push({ ...s, channel: d.name || '' });
+    } catch (_) {}
+  }
+  if (!rows.length) { list.innerHTML = '<span class="muted">No videos found in those channels.</span>'; return; }
+  list.innerHTML = '';
+  for (const s of rows) {
+    const row = document.createElement('label');
+    row.className = 'check-row';
+    const on = pickSelected.has(s.id) ? 'checked' : '';
+    row.innerHTML = `<input type="checkbox" value="${s.id}" ${on} />
+      <span style="flex:1;min-width:0"><span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.title || 'Short')}</span>
+      <small class="muted">${escapeHtml(s.channel)}${s.duration ? ' · ' + Math.round(s.duration) + 's' : ''}</small></span>`;
+    row.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) pickSelected.add(s.id); else pickSelected.delete(s.id);
+      updatePickCount();
+    });
+    list.appendChild(row);
+  }
+  updatePickCount();
+}
+
+function updatePickCount() {
+  $('pick-count').textContent = `${pickSelected.size} selected`;
+}
+
+function setAllPicked(on) {
+  $('pick-list').querySelectorAll('input[type=checkbox]').forEach((cb) => {
+    cb.checked = on;
+    if (on) pickSelected.add(cb.value); else pickSelected.delete(cb.value);
+  });
+  updatePickCount();
+}
+
+function savePicker() {
+  $('pick-msg').textContent = `${pickSelected.size} videos selected — press "Save auto settings" to apply.`;
+  setTimeout(() => $('pick-modal').classList.add('hidden'), 900);
+}
+
 // ===================== STOP / RESUME ALL QUEUES ============================
 
 let systemPaused = false;
@@ -1261,6 +1333,12 @@ $('btn-mychannel-back').addEventListener('click', () => { stopChannelPoll(); cur
 $('btn-delete-mychannel').addEventListener('click', deleteCurrentMyChannel);
 $('btn-ytchannel-back').addEventListener('click', () => { stopChannelPoll(); currentYtChannelId = null; showMineView('list'); loadMyChannels(); });
 $('btn-save-auto').addEventListener('click', saveAuto);
+$('btn-yt-pick').addEventListener('click', () => openPicker('youtube'));
+$('btn-tt-pick').addEventListener('click', () => openPicker('tiktok'));
+$('btn-close-pick').addEventListener('click', () => $('pick-modal').classList.add('hidden'));
+$('btn-pick-all').addEventListener('click', () => setAllPicked(true));
+$('btn-pick-none').addEventListener('click', () => setAllPicked(false));
+$('btn-pick-save').addEventListener('click', savePicker);
 $('btn-yt-publish-now').addEventListener('click', () => publishNow(currentYtChannelId, reloadYtChannel));
 $('btn-tt-publish-now').addEventListener('click', () => publishNow(currentTtId, reloadTtAccount));
 $('yt-cadence').addEventListener('change', toggleCadenceFields);
@@ -1284,7 +1362,10 @@ $('btn-submit-ttcookie').addEventListener('click', submitTtCookies);
 $('btn-ttaccount-back').addEventListener('click', () => { stopChannelPoll(); currentTtId = null; showMineView('list'); loadMyChannels(); });
 $('btn-save-tt-auto').addEventListener('click', saveTtAuto);
 $('tt-cadence').addEventListener('change', () => { $('tt-manual-cadence').style.display = $('tt-cadence').value === 'manual' ? 'flex' : 'none'; });
-$('tt-selection').addEventListener('change', () => { $('tt-count-wrap').style.display = $('tt-selection').value === 'number' ? 'block' : 'none'; });
+$('tt-selection').addEventListener('change', () => {
+  $('tt-count-wrap').style.display = $('tt-selection').value === 'number' ? 'block' : 'none';
+  $('tt-pick-wrap').style.display = $('tt-selection').value === 'manual' ? 'block' : 'none';
+});
 $('btn-clear-logs').addEventListener('click', async () => {
   if (!confirm('Clear all activity logs?')) return;
   try { await api('/api/activity', { method: 'DELETE' }); } catch (_) {}
