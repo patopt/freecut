@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import datetime as dt
 import random
+import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from .. import db
 from . import channels as channels_mod
@@ -162,68 +164,80 @@ def _watchdog_loop() -> None:
         _stop.wait(60.0)
 
 
+# Uploads are network-bound, so a couple can overlap safely even on a small box.
+PUBLISH_WORKERS = max(1, min(4, int(os.environ.get("PUBLISH_WORKERS", "2"))))
+
+
 def publish_due() -> None:
-    for item in db.due_publishes(time.time()):
-        dub = db.get_dub(item["dub_id"])
-        if not dub:
-            db.update_publish(item["id"], status="error", error="Dub missing")
-            continue
-        if dub["status"] != "done" or not dub.get("path"):
-            # Not rendered yet — leave pending, try again next tick.
-            if dub["status"] == "error":
-                db.update_publish(item["id"], status="error", error="Dub failed")
-            continue
-        platform = item.get("platform") or "youtube"
-        title = dub.get("tr_title") or dub.get("title") or "Short"
-        desc = dub.get("tr_description") or dub.get("description") or ""
-        tags = [t.strip() for t in (dub.get("tags") or "").split(",") if t.strip()]
+    items = db.due_publishes(time.time())
+    if not items:
+        return
+    with ThreadPoolExecutor(max_workers=PUBLISH_WORKERS) as pool:
+        list(pool.map(_publish_one, items))
 
-        if platform == "tiktok":
-            account = db.get_tiktok_account(item["yt_channel_id"])
-            if not account:
-                db.update_publish(item["id"], status="error", error="TikTok account disconnected")
-                continue
-            db.update_publish(item["id"], status="publishing")
-            logs: list[str] = []
-            try:
-                caption = " ".join(
-                    [title] + [f"#{t.replace(' ', '')}" for t in tags[:5]]).strip()
-                # Single path: TiktokAutoUploader (cookies + HTTP, no API keys,
-                # no browser). All previous TikTok upload methods were removed.
-                pid = tt_maki.post_video(account, dub["path"], caption, log=logs.append)
-                db.update_publish(item["id"], status="published", yt_video_id=pid)
-                db.log_activity("publish", f"Posted to TikTok: {title}",
-                                " | ".join(logs[-4:]) or account.get("display_name", ""),
-                                "success", "dub", item["dub_id"])
-            except Exception as exc:  # noqa: BLE001
-                # Keep the uploader's own output — that is what explains failures.
-                detail = " | ".join(logs[-4:])
-                message = f"{exc}" + (f" — {detail}" if detail else "")
-                db.update_publish(item["id"], status="error", error=message[:500])
-                db.log_activity("publish", f"TikTok post failed: {title}",
-                                message[:600], "error", "dub", item["dub_id"])
-            continue
 
-        yt_channel = db.get_youtube_channel(item["yt_channel_id"])
-        if not yt_channel:
-            db.update_publish(item["id"], status="error", error="Channel gone")
-            continue
-        account = db.get_google_account(yt_channel["account_id"])
+def _publish_one(item: dict) -> None:
+    dub = db.get_dub(item["dub_id"])
+    if not dub:
+        db.update_publish(item["id"], status="error", error="Dub missing")
+        return
+    if dub["status"] != "done" or not dub.get("path"):
+        # Not rendered yet — leave pending, try again next tick.
+        if dub["status"] == "error":
+            db.update_publish(item["id"], status="error", error="Dub failed")
+        return
+    platform = item.get("platform") or "youtube"
+    title = dub.get("tr_title") or dub.get("title") or "Short"
+    desc = dub.get("tr_description") or dub.get("description") or ""
+    tags = [t.strip() for t in (dub.get("tags") or "").split(",") if t.strip()]
+
+    if platform == "tiktok":
+        account = db.get_tiktok_account(item["yt_channel_id"])
         if not account:
-            db.update_publish(item["id"], status="error", error="Account disconnected")
-            continue
-        db.update_publish(item["id"], status="publishing")
+            db.update_publish(item["id"], status="error", error="TikTok account disconnected")
+            return
+        if not db.claim_publish(item["id"]):
+            return  # another worker already took it
+        logs: list[str] = []
         try:
-            privacy = (yt_channel.get("auto_config", {}) or {}).get("privacy", "public")
-            vid = yt_mod.upload_video(account, dub["path"], title, desc, tags, privacy)
-            db.update_publish(item["id"], status="published", yt_video_id=vid)
-            db.log_activity("publish", f"Published to YouTube: {title}",
-                            f"{yt_channel.get('title', '')} · https://youtu.be/{vid}",
+            caption = " ".join(
+                [title] + [f"#{t.replace(' ', '')}" for t in tags[:5]]).strip()
+            # Single path: TiktokAutoUploader (cookies + HTTP, no API keys,
+            # no browser). All previous TikTok upload methods were removed.
+            pid = tt_maki.post_video(account, dub["path"], caption, log=logs.append)
+            db.update_publish(item["id"], status="published", yt_video_id=pid)
+            db.log_activity("publish", f"Posted to TikTok: {title}",
+                            " | ".join(logs[-4:]) or account.get("display_name", ""),
                             "success", "dub", item["dub_id"])
         except Exception as exc:  # noqa: BLE001
-            db.update_publish(item["id"], status="error", error=str(exc)[:300])
-            db.log_activity("publish", f"YouTube upload failed: {title}",
-                            str(exc)[:400], "error", "dub", item["dub_id"])
+            # Keep the uploader's own output — that is what explains failures.
+            detail = " | ".join(logs[-4:])
+            message = f"{exc}" + (f" — {detail}" if detail else "")
+            db.update_publish(item["id"], status="error", error=message[:500])
+            db.log_activity("publish", f"TikTok post failed: {title}",
+                            message[:600], "error", "dub", item["dub_id"])
+        return
+
+    yt_channel = db.get_youtube_channel(item["yt_channel_id"])
+    if not yt_channel:
+        db.update_publish(item["id"], status="error", error="Channel gone")
+        return
+    account = db.get_google_account(yt_channel["account_id"])
+    if not account:
+        db.update_publish(item["id"], status="error", error="Account disconnected")
+        return
+    db.update_publish(item["id"], status="publishing")
+    try:
+        privacy = (yt_channel.get("auto_config", {}) or {}).get("privacy", "public")
+        vid = yt_mod.upload_video(account, dub["path"], title, desc, tags, privacy)
+        db.update_publish(item["id"], status="published", yt_video_id=vid)
+        db.log_activity("publish", f"Published to YouTube: {title}",
+                        f"{yt_channel.get('title', '')} · https://youtu.be/{vid}",
+                        "success", "dub", item["dub_id"])
+    except Exception as exc:  # noqa: BLE001
+        db.update_publish(item["id"], status="error", error=str(exc)[:300])
+        db.log_activity("publish", f"YouTube upload failed: {title}",
+                        str(exc)[:400], "error", "dub", item["dub_id"])
 
 
 def _loop() -> None:
@@ -243,7 +257,11 @@ def _loop() -> None:
                     _last_source_refresh = now
         except Exception:  # noqa: BLE001
             pass
-        _stop.wait(60.0)
+        _stop.wait(30.0)
+
+
+def stop_scheduler() -> None:
+    _stop.set()
 
 
 _watchdog: threading.Thread | None = None
@@ -259,7 +277,3 @@ def start_scheduler() -> None:
         _watchdog = threading.Thread(target=_watchdog_loop,
                                      name="shortforge-publish-watchdog", daemon=True)
         _watchdog.start()
-
-
-def stop_scheduler() -> None:
-    _stop.set()

@@ -6,12 +6,18 @@ the original video (original audio dropped, translated voiceover in its place).
 
 from __future__ import annotations
 
+import os
+
 import shutil
 import subprocess
 from pathlib import Path
 
 from .. import config, db
 from . import audio_mix, captions, download, transcribe, translate, tts
+
+# Cap per-process threads: several renders run in parallel now, and letting
+# each ffmpeg grab every core makes them all slower.
+FFMPEG_THREADS = os.environ.get("FFMPEG_THREADS", "2")
 
 
 def run_dub(dub_id: str) -> None:
@@ -149,7 +155,7 @@ def _burn_captions(video_path: Path, ass_path: Path) -> None:
         "ffmpeg", "-y", "-nostats", "-loglevel", "error",
         "-i", str(video_path),
         "-vf", f"subtitles={esc}",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", FFMPEG_THREADS, "-pix_fmt", "yuv420p",
         "-c:a", "copy", "-movflags", "+faststart", str(tmp),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -170,7 +176,7 @@ def _mux(video_path: str, audio_path: Path, out_path: Path) -> None:
     # failures). Fall back to a re-encode only if copy can't be muxed.
     attempts = [
         [*common, "-c:v", "copy", *tail],
-        [*common, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        [*common, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", FFMPEG_THREADS,
          "-pix_fmt", "yuv420p", *tail],
     ]
     last_err = ""

@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import os
+
 import subprocess
 from pathlib import Path
 
 from .reframe import target_size
+
+# Cap per-process threads: several renders run in parallel now, and letting
+# each ffmpeg grab every core makes them all slower.
+FFMPEG_THREADS = os.environ.get("FFMPEG_THREADS", "2")
 
 
 def _escape_sub_path(path: Path) -> str:
@@ -37,7 +43,7 @@ def render_short(
         "-t", f"{duration:.3f}",
         "-vf", vf,
         "-r", "30",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", FFMPEG_THREADS,
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart",

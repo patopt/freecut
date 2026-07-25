@@ -384,6 +384,56 @@ def disable_all_auto() -> int:
         return n
 
 
+def claim_next_job() -> Optional[dict]:
+    """Atomically take one queued job. Safe with several workers running."""
+    with _lock:
+        c = _connect()
+        row = c.execute(
+            "SELECT id FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        # The status guard makes the claim atomic: a racing worker updates 0 rows.
+        cur = c.execute(
+            "UPDATE jobs SET status='downloading', updated_at=? "
+            "WHERE id=? AND status='queued'", (time.time(), row["id"]))
+        c.commit()
+        if cur.rowcount != 1:
+            return None
+        got = c.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone()
+    return _job_to_dict(got) if got else None
+
+
+def claim_next_dub() -> Optional[dict]:
+    """Atomically take one queued dub."""
+    with _lock:
+        c = _connect()
+        row = c.execute(
+            "SELECT id FROM dubs WHERE status='queued' ORDER BY created_at LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        cur = c.execute(
+            "UPDATE dubs SET status='downloading', updated_at=? "
+            "WHERE id=? AND status='queued'", (time.time(), row["id"]))
+        c.commit()
+        if cur.rowcount != 1:
+            return None
+        got = c.execute("SELECT * FROM dubs WHERE id=?", (row["id"],)).fetchone()
+    return dict(got) if got else None
+
+
+def claim_publish(pub_id: str) -> bool:
+    """Atomically move a queue row from pending to publishing."""
+    with _lock:
+        c = _connect()
+        cur = c.execute(
+            "UPDATE publish_queue SET status='publishing', updated_at=? "
+            "WHERE id=? AND status='pending'", (time.time(), pub_id))
+        c.commit()
+        return cur.rowcount == 1
+
+
 def next_queued_job() -> Optional[dict]:
     with _lock:
         row = _connect().execute(

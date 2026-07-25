@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import os
+import threading
 from dataclasses import dataclass, field
 from typing import Callable
 
 ProgressCb = Callable[[float, str], None]
 
-_model_cache: dict = {}
+# Whisper is the memory hog (~700 MB per int8 instance) and a model object is
+# NOT safe to share across threads, so each worker keeps its own and a
+# semaphore caps how many transcriptions decode at the same time.
+_local = threading.local()
+_slots = threading.Semaphore(
+    max(1, min(4, int(os.environ.get("TRANSCRIBE_SLOTS", "2")))))
 
 
 @dataclass
@@ -51,6 +58,10 @@ class Transcript:
 def _get_model(size: str):
     from faster_whisper import WhisperModel
 
+    cache = getattr(_local, "models", None)
+    if cache is None:
+        cache = _local.models = {}
+    _model_cache = cache
     if size not in _model_cache:
         # int8 keeps it usable on a CPU-only VPS; auto-detects CUDA if present.
         try:
@@ -61,6 +72,12 @@ def _get_model(size: str):
 
 
 def transcribe(path: str, model_size: str, duration: float, on_progress: ProgressCb) -> Transcript:
+    with _slots:
+        return _transcribe_locked(path, model_size, duration, on_progress)
+
+
+def _transcribe_locked(path: str, model_size: str, duration: float,
+                       on_progress: ProgressCb) -> Transcript:
     model = _get_model(model_size)
     seg_iter, info = model.transcribe(
         path, word_timestamps=True, vad_filter=True, beam_size=1,
