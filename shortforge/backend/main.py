@@ -849,47 +849,6 @@ async def publish_dub_to(dub_id: str, request: Request, _: None = Depends(requir
     return {"ok": True, "platform": platform}
 
 
-@app.post("/api/publishes/{pub_id}/manual")
-async def publish_manually(pub_id: str, _: None = Depends(require_auth)):
-    """Open the remote browser with the video and caption already attached."""
-    pub = db.get_publish(pub_id)
-    if not pub:
-        raise HTTPException(status_code=404, detail="Queue item not found")
-    dub = db.get_dub(pub["dub_id"])
-    if not dub or not dub.get("path") or not Path(dub["path"]).exists():
-        raise HTTPException(status_code=400, detail="The video isn't rendered yet")
-    if (pub.get("platform") or "youtube") != "tiktok":
-        raise HTTPException(status_code=400, detail="Manual publishing is for TikTok only")
-    account = db.get_tiktok_account(pub["yt_channel_id"])
-    if not account:
-        raise HTTPException(status_code=404, detail="TikTok account not found")
-
-    title = dub.get("tr_title") or dub.get("title") or "Short"
-    tags = [t.strip() for t in (dub.get("tags") or "").split(",") if t.strip()]
-    caption = " ".join([title] + [f"#{t.replace(' ', '')}" for t in tags[:5]]).strip()
-    try:
-        info = await asyncio.to_thread(
-            tiktok_session_mod.start_session, account["id"], "tiktok",
-            "https://www.tiktok.com/tiktokstudio/upload",
-            {"video": dub["path"], "caption": caption})
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=str(exc))
-    return {**info, "publish_id": pub_id}
-
-
-@app.post("/api/publishes/{pub_id}/mark-published")
-def mark_published(pub_id: str, _: None = Depends(require_auth)):
-    """Confirm a manual post so the queue reflects reality."""
-    pub = db.get_publish(pub_id)
-    if not pub:
-        raise HTTPException(status_code=404, detail="Not found")
-    db.update_publish(pub_id, status="published", error="")
-    dub = db.get_dub(pub["dub_id"]) or {}
-    db.log_activity("publish", f"Marked as posted: {dub.get('tr_title') or dub.get('title') or ''}",
-                    "manual publish", "success", "dub", pub["dub_id"])
-    return {"ok": True}
-
-
 @app.post("/api/channels-out/{target_id}/publish-now")
 def publish_now(target_id: str, _: None = Depends(require_auth)):
     """Publish every ready, still-pending video of a channel immediately."""

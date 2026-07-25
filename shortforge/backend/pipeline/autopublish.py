@@ -200,8 +200,10 @@ def _publish_one(item: dict) -> None:
             return  # another worker already took it
         logs: list[str] = []
         try:
-            caption = " ".join(
-                [title] + [f"#{t.replace(' ', '')}" for t in tags[:5]]).strip()
+            # TikTok gets the plain title only — no tags, no hashtags. Repeated
+            # hashtag blocks across an automated channel are a common
+            # shadow-ban trigger, so we deliberately post a clean caption.
+            caption = title.strip()
             # Single path: TiktokAutoUploader (cookies + HTTP, no API keys,
             # no browser). All previous TikTok upload methods were removed.
             pid = tt_maki.post_video(account, dub["path"], caption, log=logs.append)
