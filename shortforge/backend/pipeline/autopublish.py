@@ -19,10 +19,7 @@ import time
 
 from .. import db
 from . import channels as channels_mod
-from . import tiktok as tt_mod
-from . import tiktok_browser as tt_browser
 from . import tiktok_maki as tt_maki
-from . import tiktok_publish as tt_publish
 from . import youtube as yt_mod
 
 # Optimized preset: 2 posts/day inside the 12h-15h window (server local time).
@@ -187,40 +184,24 @@ def publish_due() -> None:
                 db.update_publish(item["id"], status="error", error="TikTok account disconnected")
                 continue
             db.update_publish(item["id"], status="publishing")
+            logs: list[str] = []
             try:
-                cfg = account.get("auto_config", {}) or {}
                 caption = " ".join(
                     [title] + [f"#{t.replace(' ', '')}" for t in tags[:5]]).strip()
-                if (account.get("mode") or "api") == "browser":
-                    logs: list[str] = []
-                    # Preferred: TiktokAutoUploader (requests-based, no browser).
-                    pid = tt_maki.try_post(
-                        account, dub["path"], caption, log=logs.append)
-                    if pid is None:
-                        # Then the cookie-based browser uploader.
-                        pid = tt_publish.try_post(
-                            account, dub["path"], caption, log=logs.append)
-                    if pid is None:
-                        # Fall back to the in-house Playwright uploader.
-                        logs.append("Falling back to the built-in uploader")
-                        pid = tt_browser.post_video(
-                            account, dub["path"], caption, log=logs.append)
-                    if logs:
-                        db.log_activity("publish", f"TikTok upload log: {title}",
-                                        " | ".join(logs[-6:]), "info", "dub", item["dub_id"])
-                else:
-                    pid = tt_mod.post_video(
-                        account, dub["path"], caption,
-                        mode=cfg.get("post_mode", "direct"),
-                        privacy=cfg.get("privacy", "public"))
+                # Single path: TiktokAutoUploader (cookies + HTTP, no API keys,
+                # no browser). All previous TikTok upload methods were removed.
+                pid = tt_maki.post_video(account, dub["path"], caption, log=logs.append)
                 db.update_publish(item["id"], status="published", yt_video_id=pid)
                 db.log_activity("publish", f"Posted to TikTok: {title}",
-                                f"{account.get('display_name', '')} · {(account.get('mode') or 'api')}",
+                                " | ".join(logs[-4:]) or account.get("display_name", ""),
                                 "success", "dub", item["dub_id"])
             except Exception as exc:  # noqa: BLE001
-                db.update_publish(item["id"], status="error", error=str(exc)[:300])
+                # Keep the uploader's own output — that is what explains failures.
+                detail = " | ".join(logs[-4:])
+                message = f"{exc}" + (f" — {detail}" if detail else "")
+                db.update_publish(item["id"], status="error", error=message[:500])
                 db.log_activity("publish", f"TikTok post failed: {title}",
-                                str(exc)[:400], "error", "dub", item["dub_id"])
+                                message[:600], "error", "dub", item["dub_id"])
             continue
 
         yt_channel = db.get_youtube_channel(item["yt_channel_id"])

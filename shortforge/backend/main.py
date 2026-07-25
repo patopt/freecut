@@ -25,10 +25,7 @@ from . import auth, config, db, worker
 from .pipeline import autopublish as autopublish_mod
 from .pipeline import captions as captions_mod
 from .pipeline import channels as channels_mod
-from .pipeline import tiktok as tiktok_mod
-from .pipeline import tiktok_browser as tiktok_browser_mod
 from .pipeline import tiktok_maki as tiktok_maki_mod
-from .pipeline import tiktok_publish as tiktok_publish_mod
 from .pipeline import tiktok_session as tiktok_session_mod
 from .pipeline import translate as translate_mod
 from .pipeline import vpn as vpn_mod
@@ -726,47 +723,6 @@ async def youtube_publish_now(channel_id: str, request: Request, _: None = Depen
 _tiktok_states: dict[str, str] = {}
 
 
-@app.get("/api/tiktok/config")
-def tiktok_config(request: Request, _: None = Depends(require_auth)):
-    base = _public_base(request)
-    return {
-        "client_key_set": bool(db.effective("tiktok_client_key")),
-        "client_secret_set": bool(db.effective("tiktok_client_secret")),
-        "redirect_uri": f"{base}/api/tiktok/callback",
-        "js_origin": base,
-    }
-
-
-@app.get("/api/tiktok/auth-url")
-def tiktok_auth_url(request: Request, mode: str = "direct", _: None = Depends(require_auth)):
-    key = db.effective("tiktok_client_key")
-    if not key or not db.effective("tiktok_client_secret"):
-        raise HTTPException(status_code=400, detail="Set the TikTok client key/secret first")
-    import secrets as _secrets
-    state = _secrets.token_urlsafe(16)
-    redirect_uri = f"{_public_base(request)}/api/tiktok/callback"
-    _tiktok_states[state] = redirect_uri
-    return {"url": tiktok_mod.build_auth_url(key, redirect_uri, state, mode)}
-
-
-@app.get("/api/tiktok/callback")
-def tiktok_callback(code: str = "", state: str = ""):
-    redirect_uri = _tiktok_states.pop(state, None)
-    if not redirect_uri or not code:
-        return RedirectResponse("/?tt=error")
-    try:
-        token = tiktok_mod.exchange_code(
-            db.effective("tiktok_client_key"), db.effective("tiktok_client_secret"),
-            redirect_uri, code)
-        user = tiktok_mod.fetch_user(token["access_token"])
-        open_id = user["open_id"] or token.get("open_id", "")
-        db.upsert_tiktok_account(open_id, user["display_name"], user["avatar"],
-                                 json.dumps(token))
-        return RedirectResponse("/?tt=connected")
-    except Exception:  # noqa: BLE001
-        return RedirectResponse("/?tt=error")
-
-
 @app.get("/api/tiktok/session/status")
 def tiktok_session_status(_: None = Depends(require_auth)):
     return tiktok_session_mod.status()
@@ -942,29 +898,11 @@ def retry_publish(pub_id: str, _: None = Depends(require_auth)):
     return {"ok": True}
 
 
-@app.post("/api/tiktok/accounts/browser")
-async def tiktok_add_browser(
-    name: str = Form(...), file: UploadFile = File(...), _: None = Depends(require_auth),
-):
-    """Add a TikTok account driven by a headless browser using exported cookies."""
-    raw = (await file.read()).decode("utf-8", errors="replace")
-    import uuid as _uuid
-    open_id = f"browser-{_uuid.uuid4().hex[:10]}"
-    account_id = db.upsert_tiktok_account(open_id, name.strip() or "TikTok", "", "{}")
-    db.update_tiktok_account(account_id, mode="browser")
-    try:
-        _path, n = tiktok_browser_mod.save_cookies(account_id, raw)
-    except Exception as exc:  # noqa: BLE001
-        db.delete_tiktok_account(account_id)
-        raise HTTPException(status_code=400, detail=str(exc))
-    return {"id": account_id, "cookies": n}
-
-
 @app.get("/api/tiktok/accounts")
 def tiktok_accounts(_: None = Depends(require_auth)):
     out = []
     for a in db.list_tiktok_accounts():
-        cookies = tiktok_publish_mod.build_cookies_list(a["id"])
+        cookies = tiktok_maki_mod.build_cookies(a["id"])
         # Keep the uploader's cookie file in sync so it's always ready.
         if cookies:
             try:

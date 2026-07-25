@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import pickle
+import shutil
 import subprocess
 import sys
 import time
@@ -120,17 +121,33 @@ def post_video(account: dict, video_path: str, title: str,
     if not video.exists():
         raise RuntimeError(f"Video file is missing: {video}")
 
-    log(f"Uploading via TiktokAutoUploader ({count} cookies)…")
+    # Its CLI resolves -v relative to VideosDirPath, so stage the file there and
+    # pass a bare filename. This works whether or not it also accepts paths.
+    videos_dir = VENDOR_DIR / "VideosDirPath"
+    videos_dir.mkdir(parents=True, exist_ok=True)
+    staged = videos_dir / f"{account_id}_{int(time.time())}.mp4"
+    shutil.copy2(video, staged)
+
+    log(f"Uploading via TiktokAutoUploader ({count} cookies, {staged.name})…")
     cmd = [sys.executable, "cli.py", "upload",
-           "--user", account_id, "-v", str(video), "-t", (title or "")[:2100]]
-    proc = subprocess.run(cmd, cwd=str(VENDOR_DIR), capture_output=True,
-                          text=True, timeout=UPLOAD_TIMEOUT)
+           "--user", account_id, "-v", staged.name, "-t", (title or "")[:2100]]
+    try:
+        proc = subprocess.run(cmd, cwd=str(VENDOR_DIR), capture_output=True,
+                              text=True, timeout=UPLOAD_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        staged.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"TiktokAutoUploader did not finish within {UPLOAD_TIMEOUT // 60} minutes")
+    finally:
+        staged.unlink(missing_ok=True)
+
     output = ((proc.stdout or "") + (proc.stderr or "")).strip()
-    tail = output[-600:]
+    tail = output[-800:] or "(no output)"
+    log(f"exit={proc.returncode} :: {tail[-300:]}")
     if proc.returncode != 0:
-        raise RuntimeError(f"TiktokAutoUploader failed: {tail}")
+        raise RuntimeError(f"TiktokAutoUploader failed (exit {proc.returncode}): {tail}")
     lowered = output.lower()
-    if "error" in lowered and "success" not in lowered:
+    if "traceback" in lowered or ("error" in lowered and "success" not in lowered):
         raise RuntimeError(f"TiktokAutoUploader reported an error: {tail}")
     log("TiktokAutoUploader reported success")
     return f"tau-{int(time.time())}"

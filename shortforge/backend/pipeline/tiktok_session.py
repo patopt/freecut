@@ -417,9 +417,9 @@ class SessionRunner(threading.Thread):
                             ctx.storage_state(path=str(backup / f"{self.account_id}.json"))
                             self.log(f"Cookies captured and stored ({len(cookies)})", "success")
                             # Confirm the auto-uploader can actually use them.
-                            from . import tiktok_maki, tiktok_publish
+                            from . import tiktok_maki
 
-                            usable = tiktok_publish.build_cookies_list(self.account_id)
+                            usable = tiktok_maki.build_cookies(self.account_id)
                             # Also drop them where TiktokAutoUploader looks.
                             try:
                                 n = tiktok_maki.sync_cookies(self.account_id)
