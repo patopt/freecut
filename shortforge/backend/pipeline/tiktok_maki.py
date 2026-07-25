@@ -83,13 +83,19 @@ def build_cookies(account_id: str) -> list[dict]:
 
 
 def sync_cookies(account_id: str) -> int:
-    """Write the account's cookies where TiktokAutoUploader looks for them."""
+    """Write the account's cookies where TiktokAutoUploader looks for them.
+
+    Its login saves sessions as ``CookiesDir/tiktok_session-<user>.cookie`` and
+    `--user` is resolved against that exact prefix — writing plain
+    ``<user>.cookie`` made it report "User not found on system".
+    We also drop the bare name for older layouts.
+    """
     cookies = build_cookies(account_id)
     if not cookies:
         return 0
-    target = cookies_dir() / f"{account_id}.cookie"
-    with open(target, "wb") as handle:
-        pickle.dump(cookies, handle)
+    for name in (f"tiktok_session-{account_id}.cookie", f"{account_id}.cookie"):
+        with open(cookies_dir() / name, "wb") as handle:
+            pickle.dump(cookies, handle)
     return len(cookies)
 
 
@@ -112,11 +118,19 @@ def post_video(account: dict, video_path: str, title: str,
         raise RuntimeError(problem)
 
     account_id = account["id"]
-    count = sync_cookies(account_id)
-    if not count:
+    cookies = build_cookies(account_id)
+    if not cookies:
         raise RuntimeError(
             "No saved TikTok session for this account. Reconnect it from "
             "Settings (remote browser login).")
+    # It specifically requires a `sessionid` cookie; without it the CLI says
+    # "No cookie with Tiktok session id found".
+    if not any(c["name"] == "sessionid" and c.get("value") for c in cookies):
+        raise RuntimeError(
+            "The saved session has no 'sessionid' cookie — the login did not "
+            "complete. Reconnect the account from Settings and make sure you "
+            "are fully logged into TikTok before pressing Done.")
+    count = sync_cookies(account_id)
     video = Path(video_path).resolve()
     if not video.exists():
         raise RuntimeError(f"Video file is missing: {video}")
