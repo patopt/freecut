@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from .reframe import TARGET_H, TARGET_W
+from .reframe import target_size
 
 
 def _escape_sub_path(path: Path) -> str:
@@ -23,9 +23,11 @@ def render_short(
     ass_path: Path | None,
     out_path: Path,
     thumb_path: Path,
+    aspect: str = "9:16",
 ) -> dict:
     duration = max(0.1, end - start)
-    vf = f"crop={crop['w']}:{crop['h']}:{crop['x']}:{crop['y']},scale={TARGET_W}:{TARGET_H}"
+    tw, th = target_size(aspect)
+    vf = f"crop={crop['w']}:{crop['h']}:{crop['x']}:{crop['y']},scale={tw}:{th}"
     if ass_path is not None:
         vf += f",subtitles={_escape_sub_path(ass_path)}"
 
@@ -54,4 +56,4 @@ def render_short(
         capture_output=True, text=True,
     )
 
-    return {"path": str(out_path), "thumb": str(thumb_path), "width": TARGET_W, "height": TARGET_H}
+    return {"path": str(out_path), "thumb": str(thumb_path), "width": tw, "height": th}

@@ -196,6 +196,9 @@ def init_db() -> None:
         _ensure_column(c, "dubs", "tr_description", "TEXT DEFAULT ''")
         _ensure_column(c, "dubs", "music_id", "TEXT DEFAULT ''")
         _ensure_column(c, "dubs", "caption_style", "TEXT DEFAULT ''")
+        for col in ("hook", "flow", "value", "trend"):
+            _ensure_column(c, "shorts", col, "REAL DEFAULT 0")
+        _ensure_column(c, "shorts", "hook_text", "TEXT DEFAULT ''")
         c.commit()
 
 
@@ -422,15 +425,17 @@ def add_short(job_id: str, idx: int, **fields: Any) -> str:
         c = _connect()
         c.execute(
             "INSERT INTO shorts(id, job_id, idx, title, reason, score, start, "
-            "end, path, thumb, width, height, created_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "end, path, thumb, width, height, hook, flow, value, trend, hook_text, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 sid, job_id, idx,
                 fields.get("title", ""), fields.get("reason", ""),
                 fields.get("score", 0), fields.get("start", 0),
                 fields.get("end", 0), fields.get("path", ""),
                 fields.get("thumb", ""), fields.get("width", 0),
-                fields.get("height", 0), time.time(),
+                fields.get("height", 0),
+                fields.get("hook", 0), fields.get("flow", 0),
+                fields.get("value", 0), fields.get("trend", 0),
+                fields.get("hook_text", ""), time.time(),
             ),
         )
         c.commit()

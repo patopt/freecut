@@ -162,6 +162,7 @@ async def create_job(request: Request, _: None = Depends(require_auth)):
         "reframe": "face" if body.get("reframe", "face") == "face" else "center",
         "min_len": max(5, min(90, float(body.get("min_len", 15)))),
         "max_len": max(10, min(180, float(body.get("max_len", 60)))),
+        "aspect": str(body.get("aspect", "9:16")).strip() or "9:16",
         "music_id": str(body.get("music_id", "")).strip(),
         "music_gain": max(0.0, min(1.0, float(body.get("music_gain", 0.18)))),
         "caption_style": str(body.get("caption_style", "")).strip()
@@ -887,6 +888,25 @@ def mark_published(pub_id: str, _: None = Depends(require_auth)):
     db.log_activity("publish", f"Marked as posted: {dub.get('tr_title') or dub.get('title') or ''}",
                     "manual publish", "success", "dub", pub["dub_id"])
     return {"ok": True}
+
+
+@app.post("/api/channels-out/{target_id}/publish-now")
+def publish_now(target_id: str, _: None = Depends(require_auth)):
+    """Publish every ready, still-pending video of a channel immediately."""
+    if not (db.get_youtube_channel(target_id) or db.get_tiktok_account(target_id)):
+        raise HTTPException(status_code=404, detail="Channel not found")
+    import time as _t
+    now = _t.time()
+    moved = 0
+    for row in db.list_publishes_for_channel(target_id):
+        if row["status"] not in ("pending", "error"):
+            continue
+        dub = db.get_dub(row["dub_id"])
+        if not dub or dub.get("status") != "done" or not dub.get("path"):
+            continue  # still rendering — leave it queued
+        db.update_publish(row["id"], status="pending", error="", scheduled_at=now)
+        moved += 1
+    return {"ok": True, "queued": moved}
 
 
 @app.post("/api/publishes/{pub_id}/retry")

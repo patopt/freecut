@@ -129,7 +129,7 @@ async function createJob() {
   try {
     const body = { url, count: parseInt($('opt-count').value, 10), reframe: $('opt-reframe').value,
       captions: $('opt-captions').checked, music_id: $('opt-music').value,
-      caption_style: $('opt-caption-style').value };
+      caption_style: $('opt-caption-style').value, aspect: $('opt-aspect').value };
     const { id } = await api('/api/jobs', { method: 'POST', body: JSON.stringify(body) });
     $('job-url').value = ''; openDetail(id); loadJobs();
   } catch (e) { err.textContent = e.message; }
@@ -173,11 +173,32 @@ function shortCard(s) {
     onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb thumb-fallback',textContent:'▶'}))" />
     <div class="short-body"><div class="short-title">${escapeHtml(s.title || 'Short')}</div>
       <div class="short-meta"><span class="score">★ ${Math.round(s.score)}</span>
-      <a class="dl" href="/api/shorts/${s.id}/download">Download</a></div></div>`;
+      <a class="dl" href="/api/shorts/${s.id}/download">Download</a></div>
+      ${viralityBars(s)}${s.hook_text ? `<div class="hook-text">🪝 ${escapeHtml(s.hook_text)}</div>` : ''}
+      </div>`;
   const play = () => openPlayer(`/api/shorts/${s.id}/video`, `/api/shorts/${s.id}/download`);
   el.querySelector('.thumb').addEventListener('click', play);
   el.querySelector('.short-title').addEventListener('click', play);
   return el;
+}
+
+function viralityBars(s) {
+  const rows = [['hook', s.hook], ['flow', s.flow], ['value', s.value], ['trend', s.trend]];
+  if (!rows.some(([, v]) => v > 0)) return '';
+  return '<div class="virality">' + rows.map(([k, v]) =>
+    `<div class="vir-row"><span>${k}</span><div class="vir-bar">` +
+    `<div class="vir-fill" style="width:${Math.max(0, Math.min(100, v || 0))}%"></div></div></div>`
+  ).join('') + '</div>';
+}
+
+async function publishNow(targetId, reload) {
+  try {
+    const r = await api(`/api/channels-out/${targetId}/publish-now`, { method: 'POST' });
+    alert(r.queued
+      ? `${r.queued} video(s) queued for immediate publishing.`
+      : 'Nothing ready to publish right now (still translating, or already posted).');
+  } catch (e) { alert(e.message); }
+  if (reload) reload();
 }
 
 // ===================== COPY: SOURCE CHANNELS ===============================
@@ -1240,6 +1261,8 @@ $('btn-mychannel-back').addEventListener('click', () => { stopChannelPoll(); cur
 $('btn-delete-mychannel').addEventListener('click', deleteCurrentMyChannel);
 $('btn-ytchannel-back').addEventListener('click', () => { stopChannelPoll(); currentYtChannelId = null; showMineView('list'); loadMyChannels(); });
 $('btn-save-auto').addEventListener('click', saveAuto);
+$('btn-yt-publish-now').addEventListener('click', () => publishNow(currentYtChannelId, reloadYtChannel));
+$('btn-tt-publish-now').addEventListener('click', () => publishNow(currentTtId, reloadTtAccount));
 $('yt-cadence').addEventListener('change', toggleCadenceFields);
 $('yt-selection').addEventListener('change', toggleSelectionFields);
 $('btn-connect-google').addEventListener('click', connectGoogle);

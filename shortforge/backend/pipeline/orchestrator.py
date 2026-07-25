@@ -26,6 +26,7 @@ def run_job(job_id: str) -> None:
     reframe_mode = params.get("reframe", "face")
     min_len = float(params.get("min_len", 15))
     max_len = float(params.get("max_len", 60))
+    aspect = params.get("aspect", "9:16")
 
     try:
         # 1. Download -------------------------------------------------------
@@ -79,7 +80,7 @@ def run_job(job_id: str) -> None:
                 cx = reframe.detect_face_center(src["path"], clip["start"], clip["end"])
             else:
                 cx = 0.5
-            crop = reframe.compute_crop(src_w, src_h, cx)
+            crop = reframe.compute_crop(src_w, src_h, cx, aspect)
 
             ass_path = None
             if want_captions:
@@ -93,7 +94,7 @@ def run_job(job_id: str) -> None:
             thumb_file = out_dir / f"short_{n:02d}.jpg"
             result = render.render_short(
                 src["path"], clip["start"], clip["end"], crop,
-                ass_path, out_file, thumb_file,
+                ass_path, out_file, thumb_file, aspect,
             )
 
             # Optional background music.
@@ -112,6 +113,9 @@ def run_job(job_id: str) -> None:
             db.add_short(
                 job_id, idx=n, title=clip["title"], reason=clip["reason"],
                 score=clip["score"], start=clip["start"], end=clip["end"],
+                hook=clip.get("hook", 0), flow=clip.get("flow", 0),
+                value=clip.get("value", 0), trend=clip.get("trend", 0),
+                hook_text=clip.get("hook_text", ""),
                 path=result["path"], thumb=result["thumb"],
                 width=result["width"], height=result["height"],
             )

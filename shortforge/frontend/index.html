@@ -44,6 +44,13 @@
             <label class="switch-row">
               <input type="checkbox" id="opt-captions" checked /> Captions
             </label>
+            <label>Format
+              <select id="opt-aspect">
+                <option value="9:16">9:16 Vertical</option>
+                <option value="1:1">1:1 Square</option>
+                <option value="16:9">16:9 Wide</option>
+              </select>
+            </label>
             <label>Caption style
               <select id="opt-caption-style"></select>
             </label>
@@ -149,7 +156,10 @@
           <div class="card">
             <div class="channel-head">
               <h2 id="ytchannel-name">▶ …</h2>
-              <label class="switch-row"><input type="checkbox" id="yt-auto-enabled" /> Auto</label>
+              <div class="channel-actions">
+                <button id="btn-yt-publish-now" class="btn small primary">🚀 Publish</button>
+                <label class="switch-row"><input type="checkbox" id="yt-auto-enabled" /> Auto</label>
+              </div>
             </div>
             <div class="yt-stats">
               <div class="stat"><div class="stat-n" id="yt-stat-published">0</div><div class="stat-l">Published</div></div>
@@ -195,7 +205,10 @@
           <div class="card">
             <div class="channel-head">
               <h2 id="ttaccount-name">♪ …</h2>
-              <label class="switch-row"><input type="checkbox" id="tt-auto-enabled" /> Auto</label>
+              <div class="channel-actions">
+                <button id="btn-tt-publish-now" class="btn small primary">🚀 Publish</button>
+                <label class="switch-row"><input type="checkbox" id="tt-auto-enabled" /> Auto</label>
+              </div>
             </div>
             <div class="yt-stats">
               <div class="stat"><div class="stat-n" id="tt-stat-published">0</div><div class="stat-l">Posted</div></div>

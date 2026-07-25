@@ -13,6 +13,17 @@ TARGET_W = 1080
 TARGET_H = 1920
 TARGET_RATIO = 9 / 16
 
+# Output formats offered in the UI (OpusClip-style): vertical, square, wide.
+ASPECTS = {
+    "9:16": (1080, 1920),
+    "1:1": (1080, 1080),
+    "16:9": (1920, 1080),
+}
+
+
+def target_size(aspect: str) -> tuple[int, int]:
+    return ASPECTS.get(aspect, ASPECTS["9:16"])
+
 
 def probe_dimensions(path: str) -> tuple[int, int]:
     out = subprocess.run(
@@ -31,12 +42,15 @@ def _even(n: int) -> int:
     return n - (n % 2)
 
 
-def compute_crop(src_w: int, src_h: int, center_x_frac: float) -> dict:
+def compute_crop(src_w: int, src_h: int, center_x_frac: float,
+                 aspect: str = "9:16") -> dict:
     """Return an ffmpeg crop spec {w,h,x,y} for a 9:16 window over the source."""
+    tw, th = target_size(aspect)
+    ratio = tw / th
     src_ratio = src_w / src_h
-    if src_ratio > TARGET_RATIO:
+    if src_ratio > ratio:
         # Source is wider than 9:16 → crop the sides (this is the common case).
-        cw = _even(int(round(src_h * TARGET_RATIO)))
+        cw = _even(int(round(src_h * ratio)))
         ch = _even(src_h)
         cx = int(round(center_x_frac * src_w - cw / 2))
         cx = max(0, min(cx, src_w - cw))
@@ -44,7 +58,7 @@ def compute_crop(src_w: int, src_h: int, center_x_frac: float) -> dict:
     else:
         # Source is taller/narrower → crop top & bottom, keep full width.
         cw = _even(src_w)
-        ch = _even(int(round(src_w / TARGET_RATIO)))
+        ch = _even(int(round(src_w / ratio)))
         cx = 0
         cy = max(0, (src_h - ch) // 2)
     return {"w": cw, "h": ch, "x": cx, "y": cy}

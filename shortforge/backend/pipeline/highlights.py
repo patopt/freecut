@@ -27,9 +27,15 @@ Rules:
 - `title` is a punchy, curiosity-driven caption (max 60 chars), no hashtags.
 - `reason` is one short sentence on why it will perform well.
 - `score` is 0-100, your confidence it will go viral.
+- Also rate 0-100 the four signals behind that score:
+  `hook` (how strongly the first 3 seconds grab attention),
+  `flow` (emotional arc / pacing), `value` (payoff for the viewer),
+  `trend` (alignment with what performs on short-form now).
+- `hook_text` is a punchy 3-6 word on-screen hook for the first seconds.
 
 Return ONLY a JSON array, no prose, shaped like:
-[{{"start": 12.4, "end": 48.9, "title": "...", "reason": "...", "score": 87}}]
+[{{"start": 12.4, "end": 48.9, "title": "...", "reason": "...", "score": 87,
+   "hook": 90, "flow": 80, "value": 85, "trend": 75, "hook_text": "..."}}]
 
 TRANSCRIPT:
 {transcript}
@@ -73,12 +79,24 @@ def _sanitize(raw: list, duration: float, min_len: float, max_len: float, count:
             end = start + max_len
         if end <= start:
             continue
+        def _sub(key: str) -> float:
+            try:
+                return max(0.0, min(100.0, float(item.get(key, 0) or 0)))
+            except (TypeError, ValueError):
+                return 0.0
+
         out.append({
             "start": round(start, 2),
             "end": round(end, 2),
             "title": str(item.get("title", "")).strip()[:80] or "Highlight",
             "reason": str(item.get("reason", "")).strip()[:200],
             "score": float(item.get("score", 50) or 50),
+            # Virality breakdown (hook / emotional flow / value / trend).
+            "hook": _sub("hook"),
+            "flow": _sub("flow"),
+            "value": _sub("value"),
+            "trend": _sub("trend"),
+            "hook_text": str(item.get("hook_text", "")).strip()[:60],
         })
     # Drop overlaps, keep highest score first.
     out.sort(key=lambda h: h["score"], reverse=True)
