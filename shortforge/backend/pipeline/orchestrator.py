@@ -24,8 +24,8 @@ def run_job(job_id: str) -> None:
     count = int(params.get("count", 6))
     want_captions = bool(params.get("captions", True))
     reframe_mode = params.get("reframe", "face")
-    min_len = float(params.get("min_len", 15))
-    max_len = float(params.get("max_len", 60))
+    min_len = float(params.get("min_len", 60))
+    max_len = float(params.get("max_len", 90))
     aspect = params.get("aspect", "9:16")
 
     try:

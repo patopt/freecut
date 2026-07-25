@@ -135,8 +135,8 @@ def find_highlights(
     api_key: str,
     model: str,
     count: int,
-    min_len: float = 15.0,
-    max_len: float = 60.0,
+    min_len: float = 60.0,
+    max_len: float = 90.0,
 ) -> tuple[list[dict], Optional[str]]:
     """Return (highlights, note). `note` describes any fallback that happened."""
     duration = transcript.duration

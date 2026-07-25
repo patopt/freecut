@@ -98,6 +98,26 @@ fi
 
 mkdir -p data
 
+# --- Swap: keeps long transcriptions from being OOM-killed -------------------
+# Whisper on a long source can briefly spike past a 4 GB box. Swap turns a hard
+# "Killed" into a slow moment instead of a lost job.
+CURRENT_SWAP=$(awk '/SwapTotal/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+if [ "${CURRENT_SWAP:-0}" -lt 1024 ] && [ ! -f /swapfile ]; then
+  info "Creating a 4 GB swapfile (protects long transcriptions from OOM)..."
+  if $SUDO fallocate -l 4G /swapfile 2>/dev/null || \
+     $SUDO dd if=/dev/zero of=/swapfile bs=1M count=4096 status=none 2>/dev/null; then
+    $SUDO chmod 600 /swapfile
+    $SUDO mkswap /swapfile >/dev/null 2>&1
+    $SUDO swapon /swapfile 2>/dev/null && info "Swap enabled."
+    grep -q '^/swapfile' /etc/fstab 2>/dev/null || \
+      echo '/swapfile none swap sw 0 0' | $SUDO tee -a /etc/fstab >/dev/null
+  else
+    warn "Could not create a swapfile — long videos may hit the OOM killer."
+  fi
+else
+  info "Swap already present."
+fi
+
 # --- 4b. TiktokAutoUploader (requests-based TikTok posting) ------------------
 # Needs Node.js for its signature generation.
 if ! command -v node >/dev/null 2>&1; then

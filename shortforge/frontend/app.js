@@ -130,6 +130,8 @@ async function createJob() {
     const body = { url, count: parseInt($('opt-count').value, 10), reframe: $('opt-reframe').value,
       captions: $('opt-captions').checked, music_id: $('opt-music').value,
       caption_style: $('opt-caption-style').value, aspect: $('opt-aspect').value };
+    const [mn, mx] = ($('opt-length').value || '60,90').split(',').map(Number);
+    body.min_len = mn; body.max_len = mx;
     const { id } = await api('/api/jobs', { method: 'POST', body: JSON.stringify(body) });
     $('job-url').value = ''; openDetail(id); loadJobs();
   } catch (e) { err.textContent = e.message; }
