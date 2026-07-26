@@ -57,42 +57,84 @@ function switchMode(mode) {
 
 // ===================== CLOUD DESKTOP =======================================
 
-// Tracked separately: an iframe with src='' reports the document URL back, so
-// reading .src is not a reliable "is it mounted" test.
-let cloudMounted = false;
+let cloudState = { sessions: [], max_sessions: 3 };
+let cloudActive = '';   // id of the session shown in the iframe
+let cloudMountedId = '';
 
 function unmountCloudFrame() {
+  // An iframe with src='' reloads the document URL, so blank it explicitly.
   $('cloud-frame').src = 'about:blank';
-  cloudMounted = false;
+  cloudMountedId = '';
+}
+
+// The X display is created at the size of the area it will be shown in, so the
+// desktop fills the window instead of sitting in a small letterboxed rectangle.
+function cloudViewportSize() {
+  const r = $('cloud-stage').getBoundingClientRect();
+  // CSS pixels on purpose: matching devicePixelRatio would double the
+  // framebuffer a shared 4-vCPU box has to encode and push through the tunnel,
+  // for sharpness nobody asked for.
+  const w = Math.round(r.width || window.innerWidth);
+  const h = Math.round(r.height || (window.innerHeight - 230));
+  return { width: Math.max(800, w), height: Math.max(600, h) };
 }
 
 function renderCloud(s) {
-  const stage = $('cloud-stage');
+  if (s && s.sessions) cloudState = s;
   const box = $('cloud-status');
-  if (s.missing && s.missing.length) {
-    box.textContent = `Not available: ${s.missing.join(', ')} missing. Run ./setup.sh again.`;
+  const stage = $('cloud-stage');
+  const tabs = $('cloud-tabs');
+
+  if (cloudState.missing && cloudState.missing.length) {
+    box.textContent = `Not available: ${cloudState.missing.join(', ')} missing. Run ./setup.sh again.`;
+    tabs.innerHTML = '';
     stage.classList.add('hidden');
     return;
   }
-  box.textContent = s.running
-    ? `Running — ${s.desktop} at ${s.screen}. Password: ${(s.vnc_password || '').slice(0, 8)}`
-    : `Stopped. ${s.desktop} is installed and ready.`;
-  stage.classList.toggle('hidden', !s.running);
-  if (s.running && !cloudMounted) { mountCloudFrame(s); cloudMounted = true; }
-  if (!s.running) unmountCloudFrame();
+
+  const list = cloudState.sessions || [];
+  if (!list.some((x) => x.id === cloudActive)) cloudActive = list.length ? list[0].id : '';
+
+  tabs.innerHTML = list.map((x, i) => `
+    <button class="cloud-tab${x.id === cloudActive ? ' active' : ''}" data-id="${x.id}">
+      🖥 Desktop ${i + 1}<span class="cloud-dim">${x.width}×${x.height}</span>
+    </button>`).join('') || '<span class="muted">No desktop running.</span>';
+  tabs.querySelectorAll('.cloud-tab').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.id === cloudActive) return;
+    cloudActive = b.dataset.id;
+    unmountCloudFrame();
+    renderCloud();
+  }));
+
+  const cur = list.find((x) => x.id === cloudActive);
+  stage.classList.toggle('hidden', !cur);
+  $('btn-cloud-start').disabled = list.length >= (cloudState.max_sessions || 3);
+  ['btn-cloud-browser', 'btn-cloud-fit', 'btn-cloud-full', 'btn-cloud-stop']
+    .forEach((id) => { $(id).disabled = !cur; });
+
+  box.textContent = cur
+    ? `${cur.desktop} · ${cur.width}×${cur.height} · ${list.length}/${cloudState.max_sessions} running`
+    : `${cloudState.desktop || 'No desktop'} installed. Press “New desktop” to start one.`;
+
+  if (cur && cloudMountedId !== cur.id) mountCloudFrame(cur);
+  if (!cur) unmountCloudFrame();
 }
 
-function mountCloudFrame(s) {
+function mountCloudFrame(sess) {
   const secure = window.location.protocol === 'https:';
   const params = new URLSearchParams({
-    autoconnect: '1', resize: 'remote', reconnect: '1',
+    autoconnect: '1', reconnect: '1',
+    // 'scale' keeps the whole desktop visible whatever the window does; the
+    // display itself is already created at the right size, so it stays sharp.
+    resize: 'scale',
     host: window.location.hostname,
     port: window.location.port || (secure ? '443' : '80'),
     encrypt: secure ? '1' : '0',
-    path: 'api/cloud/ws',
-    password: s.vnc_password,
+    path: `api/cloud/ws/${sess.id}`,
+    password: cloudState.vnc_password,
   });
-  $('cloud-frame').src = `/novnc/${s.novnc_page || 'vnc.html'}?${params.toString()}`;
+  $('cloud-frame').src = `/novnc/${cloudState.novnc_page || 'vnc.html'}?${params.toString()}`;
+  cloudMountedId = sess.id;
 }
 
 async function loadCloud() {
@@ -105,24 +147,40 @@ async function cloudStart() {
   btn.disabled = true;
   $('cloud-status').textContent = 'Starting the desktop…';
   try {
-    unmountCloudFrame();   // force a fresh connection to the new session
-    renderCloud(await api('/api/cloud/start', { method: 'POST' }));
-  } catch (e) { $('cloud-status').textContent = e.message; }
-  finally { btn.disabled = false; }
+    const size = cloudViewportSize();
+    const sess = await api('/api/cloud/sessions',
+      { method: 'POST', body: JSON.stringify(size) });
+    cloudActive = sess.id;
+    unmountCloudFrame();
+    renderCloud(await api('/api/cloud/status'));
+  } catch (e) { $('cloud-status').textContent = e.message; btn.disabled = false; }
 }
 
 async function cloudStop() {
+  if (!cloudActive) return;
   try {
     unmountCloudFrame();
-    renderCloud(await api('/api/cloud/stop', { method: 'POST' }));
+    renderCloud(await api(`/api/cloud/sessions/${cloudActive}/stop`, { method: 'POST' }));
+  } catch (e) { $('cloud-status').textContent = e.message; }
+}
+
+async function cloudFit() {
+  if (!cloudActive) return;
+  try {
+    await api(`/api/cloud/sessions/${cloudActive}/resize`,
+      { method: 'POST', body: JSON.stringify(cloudViewportSize()) });
+    renderCloud(await api('/api/cloud/status'));
   } catch (e) { $('cloud-status').textContent = e.message; }
 }
 
 async function cloudBrowser() {
+  if (!cloudActive) return;
   const url = prompt('Open which URL?', 'https://www.google.com');
   if (url === null) return;
-  try { await api('/api/cloud/browser', { method: 'POST', body: JSON.stringify({ url }) }); }
-  catch (e) { alert(e.message); }
+  try {
+    await api(`/api/cloud/sessions/${cloudActive}/browser`,
+      { method: 'POST', body: JSON.stringify({ url }) });
+  } catch (e) { alert(e.message); }
 }
 
 function cloudFullscreen() {
@@ -1423,6 +1481,7 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
 $('btn-cloud-start').addEventListener('click', cloudStart);
 $('btn-cloud-stop').addEventListener('click', cloudStop);
 $('btn-cloud-browser').addEventListener('click', cloudBrowser);
+$('btn-cloud-fit').addEventListener('click', cloudFit);
 $('btn-cloud-full').addEventListener('click', cloudFullscreen);
 document.querySelectorAll('.subtab').forEach((t) => t.addEventListener('click', () => switchSub(t.dataset.sub)));
 

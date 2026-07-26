@@ -50,7 +50,7 @@ def _shutdown() -> None:
     worker.stop_worker()
     autopublish_mod.stop_scheduler()
     tiktok_session_mod.shutdown()
-    cloud_mod.stop()
+    cloud_mod.stop_all()
 
 
 # --- auth helpers -----------------------------------------------------------
@@ -738,27 +738,49 @@ def cloud_status(_: None = Depends(require_auth)):
     return cloud_mod.status()
 
 
-@app.post("/api/cloud/start")
-async def cloud_start(_: None = Depends(require_auth)):
+@app.post("/api/cloud/sessions")
+async def cloud_session_start(request: Request, _: None = Depends(require_auth)):
+    body = await request.json() if await request.body() else {}
     try:
         # Bringing up a desktop takes seconds; keep the event loop free.
-        return await asyncio.to_thread(cloud_mod.start)
+        return await asyncio.to_thread(
+            cloud_mod.start,
+            body.get("width", cloud_mod.DEFAULT_W),
+            body.get("height", cloud_mod.DEFAULT_H),
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/cloud/stop")
-async def cloud_stop(_: None = Depends(require_auth)):
-    return await asyncio.to_thread(cloud_mod.stop)
+@app.post("/api/cloud/sessions/{session_id}/stop")
+async def cloud_session_stop(session_id: str, _: None = Depends(require_auth)):
+    return await asyncio.to_thread(cloud_mod.stop, session_id)
 
 
-@app.post("/api/cloud/browser")
-async def cloud_browser(request: Request, _: None = Depends(require_auth)):
+@app.post("/api/cloud/stop-all")
+async def cloud_stop_all(_: None = Depends(require_auth)):
+    return await asyncio.to_thread(cloud_mod.stop_all)
+
+
+@app.post("/api/cloud/sessions/{session_id}/resize")
+async def cloud_session_resize(session_id: str, request: Request,
+                               _: None = Depends(require_auth)):
+    body = await request.json()
+    try:
+        return await asyncio.to_thread(
+            cloud_mod.resize, session_id, body.get("width"), body.get("height"))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/cloud/sessions/{session_id}/browser")
+async def cloud_session_browser(session_id: str, request: Request,
+                                _: None = Depends(require_auth)):
     body = await request.json()
     url = str(body.get("url", "")).strip() or "https://www.google.com"
     profile = str(body.get("profile", "")).strip() or "cloud"
     try:
-        await asyncio.to_thread(cloud_mod.launch_browser, profile, url)
+        await asyncio.to_thread(cloud_mod.launch_browser, session_id, profile, url)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True}
@@ -811,10 +833,14 @@ async def vnc_bridge(ws: WebSocket):
     await _rfb_proxy(ws, tiktok_session_mod.VNC_PORT)
 
 
-@app.websocket("/api/cloud/ws")
-async def cloud_vnc_bridge(ws: WebSocket):
-    """Same bridge, for the cloud desktop's own display."""
-    await _rfb_proxy(ws, cloud_mod.VNC_PORT)
+@app.websocket("/api/cloud/ws/{session_id}")
+async def cloud_vnc_bridge(ws: WebSocket, session_id: str):
+    """Same bridge, for one cloud desktop's own display."""
+    sess = cloud_mod.get(session_id)
+    if sess is None:
+        await ws.close(code=1008)
+        return
+    await _rfb_proxy(ws, sess.port)
 
 
 async def _rfb_proxy(ws: WebSocket, port: int) -> None:

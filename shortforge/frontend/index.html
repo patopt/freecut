@@ -271,20 +271,16 @@
 
     <!-- ============ CLOUD DESKTOP SCREEN ============ -->
     <section id="screen-cloud" class="hidden">
-      <div class="card">
-        <div class="channel-head">
-          <h2>Cloud desktop</h2>
-          <div class="dub-actions-row">
-            <button id="btn-cloud-start" class="btn small primary">▶ Start</button>
-            <button id="btn-cloud-browser" class="btn small">🌐 Browser</button>
-            <button id="btn-cloud-full" class="btn small">⛶ Fullscreen</button>
-            <button id="btn-cloud-stop" class="btn small danger">⏹ Stop</button>
-          </div>
+      <div class="card cloud-bar">
+        <div class="cloud-tabs" id="cloud-tabs"></div>
+        <div class="cloud-tools">
+          <button id="btn-cloud-start" class="btn small primary">＋ New desktop</button>
+          <button id="btn-cloud-browser" class="btn small">🌐 Browser</button>
+          <button id="btn-cloud-fit" class="btn small">⤢ Fit</button>
+          <button id="btn-cloud-full" class="btn small">⛶ Fullscreen</button>
+          <button id="btn-cloud-stop" class="btn small danger">⏹ Stop</button>
         </div>
-        <p class="muted">A full desktop running on the VPS, streamed here. Use it to log
-        into anything by hand, inspect files, or run a terminal. It only consumes memory
-        while it is running — press Stop when you are done.</p>
-        <div id="cloud-status" class="meta-val">…</div>
+        <div id="cloud-status" class="muted cloud-hint">…</div>
       </div>
       <div id="cloud-stage" class="cloud-stage hidden">
         <iframe id="cloud-frame" class="cloud-frame"
