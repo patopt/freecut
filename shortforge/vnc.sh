@@ -133,16 +133,22 @@ PUBIP="$(curl -s --max-time 4 https://ifconfig.me 2>/dev/null || echo '<your-vps
 SSHUSER="$(id -un)"
 echo
 echo "${BOLD}────────────  VNC connection info  ────────────${RESET}"
-echo "  Password  : ${BOLD}$PASSWORD${RESET}"
+echo "  Password  : ${BOLD}${PASSWORD:0:8}${RESET}"
+echo "              (VNC auth ignores anything past 8 characters)"
 echo "  Port      : $VNC_PORT   (display $DISPLAY_NUM, ${SCREEN%x*} px)"
 echo "  Profile   : $PROFILE_DIR"
 echo
 if [ "$PUBLIC" = "1" ]; then
   echo "  ${BOLD}RealVNC address${RESET} : ${BOLD}$PUBIP:$VNC_PORT${RESET}"
   echo
-  warn "Listening on ALL interfaces. Anyone who reaches this port and guesses"
-  warn "the password controls a browser logged into your accounts. Restrict it:"
+  warn "Listening on ALL interfaces, and RFB traffic is not encrypted."
+  warn "Anyone reaching this port with the 8-char password drives a browser"
+  warn "logged into your accounts. Restrict it to your own IP:"
   echo "     sudo ufw allow from <your-home-ip> to any port $VNC_PORT proto tcp"
+  if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -qi '^Status: active'; then
+    ufw status 2>/dev/null | grep -q "$VNC_PORT" \
+      || warn "ufw is active and does not allow $VNC_PORT yet — you will not connect."
+  fi
 else
   echo "  Bound to localhost only. On ${BOLD}your machine${RESET}, open a tunnel:"
   echo
