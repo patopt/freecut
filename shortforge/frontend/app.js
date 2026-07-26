@@ -49,6 +49,8 @@ function switchMode(mode) {
   $('screen-copy').classList.toggle('hidden', mode !== 'copy');
   $('screen-logs').classList.toggle('hidden', mode !== 'logs');
   $('screen-cloud').classList.toggle('hidden', mode !== 'cloud');
+  // Lets the stylesheet drop the 780px column for this screen only.
+  document.body.classList.toggle('cloud-mode', mode === 'cloud');
   if (mode === 'clip') { stopChannelPoll(); loadJobs(); }
   else if (mode === 'logs') { stopChannelPoll(); closeStreams(); loadLogs(); }
   else if (mode === 'cloud') { stopChannelPoll(); closeStreams(); loadCloud(); }
@@ -109,7 +111,7 @@ function renderCloud(s) {
   const cur = list.find((x) => x.id === cloudActive);
   stage.classList.toggle('hidden', !cur);
   $('btn-cloud-start').disabled = list.length >= (cloudState.max_sessions || 3);
-  ['btn-cloud-browser', 'btn-cloud-fit', 'btn-cloud-full', 'btn-cloud-stop']
+  ['btn-cloud-browser', 'btn-cloud-fit', 'btn-cloud-full', 'btn-cloud-pop', 'btn-cloud-stop']
     .forEach((id) => { $(id).disabled = !cur; });
 
   box.textContent = cur
@@ -120,7 +122,7 @@ function renderCloud(s) {
   if (!cur) unmountCloudFrame();
 }
 
-function mountCloudFrame(sess) {
+function cloudViewerUrl(sess) {
   const secure = window.location.protocol === 'https:';
   const params = new URLSearchParams({
     autoconnect: '1', reconnect: '1',
@@ -133,8 +135,19 @@ function mountCloudFrame(sess) {
     path: `api/cloud/ws/${sess.id}`,
     password: cloudState.vnc_password,
   });
-  $('cloud-frame').src = `/novnc/${cloudState.novnc_page || 'vnc.html'}?${params.toString()}`;
+  return `/novnc/${cloudState.novnc_page || 'vnc.html'}?${params.toString()}`;
+}
+
+function mountCloudFrame(sess) {
+  $('cloud-frame').src = cloudViewerUrl(sess);
   cloudMountedId = sess.id;
+}
+
+// A real tab gives the whole screen, and surfaces the actual console error
+// when the viewer misbehaves — inside the iframe it is masked as "Script error".
+function cloudPopout() {
+  const cur = (cloudState.sessions || []).find((x) => x.id === cloudActive);
+  if (cur) window.open(cloudViewerUrl(cur), '_blank', 'noopener');
 }
 
 async function loadCloud() {
@@ -1483,6 +1496,7 @@ $('btn-cloud-stop').addEventListener('click', cloudStop);
 $('btn-cloud-browser').addEventListener('click', cloudBrowser);
 $('btn-cloud-fit').addEventListener('click', cloudFit);
 $('btn-cloud-full').addEventListener('click', cloudFullscreen);
+$('btn-cloud-pop').addEventListener('click', cloudPopout);
 document.querySelectorAll('.subtab').forEach((t) => t.addEventListener('click', () => switchSub(t.dataset.sub)));
 
 $('btn-create').addEventListener('click', createJob);

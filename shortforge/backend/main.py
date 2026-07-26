@@ -62,11 +62,29 @@ def require_auth(request: Request) -> None:
 
 # --- pages ------------------------------------------------------------------
 
+def _asset_version() -> str:
+    """Newest mtime across the frontend assets, as a cache-busting token.
+
+    Without this an updated styles.css/app.js keeps losing to the browser
+    cache after a deploy, and the UI silently stays on the old build.
+    """
+    newest = 0.0
+    for name in ("styles.css", "app.js"):
+        path = config.FRONTEND_DIR / name
+        if path.is_file():
+            newest = max(newest, path.stat().st_mtime)
+    return str(int(newest))
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     if not auth.valid_session(request.cookies.get(auth.COOKIE_NAME)):
         return RedirectResponse("/login")
-    return FileResponse(config.FRONTEND_DIR / "index.html")
+    html = (config.FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    v = _asset_version()
+    html = (html.replace("/static/styles.css", f"/static/styles.css?v={v}")
+                .replace("/static/app.js", f"/static/app.js?v={v}"))
+    return HTMLResponse(html)
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -1188,10 +1206,16 @@ def service_command(_: None = Depends(require_auth)):
 
 
 # noVNC client for the in-dashboard remote browser. Resolved at startup from
-# the distro package or the copy setup.sh downloads into data/novnc.
+# the copy setup.sh downloads into data/novnc, or the distro package.
 _novnc_dir = tiktok_session_mod.novnc_dir()
 if _novnc_dir:
-    app.mount("/novnc", StaticFiles(directory=_novnc_dir), name="novnc")
+    try:
+        # The distro layout symlinks core/app/vendor elsewhere; without this
+        # StaticFiles 404s them and noVNC fails to boot.
+        _novnc_files = StaticFiles(directory=_novnc_dir, follow_symlink=True)
+    except TypeError:  # older Starlette without the option
+        _novnc_files = StaticFiles(directory=_novnc_dir)
+    app.mount("/novnc", _novnc_files, name="novnc")
 
 # Static assets (css/js) — safe to serve without auth (no secrets).
 app.mount("/static", StaticFiles(directory=config.FRONTEND_DIR), name="static")

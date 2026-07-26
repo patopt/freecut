@@ -127,7 +127,12 @@ def _have(cmd: str) -> bool:
 
 
 def novnc_dir() -> Optional[str]:
-    for d in list(NOVNC_CANDIDATES) + [str(config.DATA_DIR / "novnc")]:
+    # The downloaded copy comes first on purpose. Debian/Ubuntu's novnc package
+    # ships /usr/share/novnc/{core,app,vendor} as symlinks into
+    # /usr/share/javascript/novnc/, and StaticFiles refuses to serve a path that
+    # resolves outside the mounted directory — every ES module 404s and noVNC
+    # dies with a bare "Script error.". The tarball extraction is self-contained.
+    for d in [str(config.DATA_DIR / "novnc")] + list(NOVNC_CANDIDATES):
         p = Path(d)
         if (p / "vnc.html").is_file() or (p / "vnc_lite.html").is_file():
             return str(p)

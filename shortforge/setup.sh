@@ -199,11 +199,11 @@ elif command -v apt-get >/dev/null 2>&1; then
 fi
 
 # --- 6. noVNC web client ----------------------------------------------------
-# The dashboard serves this to show the remote browser. Use the distro package
-# when present, otherwise fetch a release into data/novnc.
-if [ -f /usr/share/novnc/vnc.html ] || [ -f /usr/share/novnc/vnc_lite.html ]; then
-  info "noVNC found at /usr/share/novnc"
-elif [ -f data/novnc/vnc.html ]; then
+# Always keep a self-contained copy in data/novnc. The distro package is only a
+# fallback: it ships core/app/vendor as symlinks into /usr/share/javascript,
+# which the app's static file server will not follow out of its mount, and the
+# viewer then fails to load with an opaque "Script error.".
+if [ -f data/novnc/core/rfb.js ]; then
   info "noVNC already downloaded in data/novnc"
 else
   info "Downloading noVNC client..."
@@ -212,6 +212,8 @@ else
     tar -xzf /tmp/novnc.tgz -C data/novnc --strip-components=1
     rm -f /tmp/novnc.tgz
     info "noVNC installed into data/novnc"
+  elif [ -f /usr/share/novnc/vnc.html ]; then
+    warn "Download failed; falling back to the distro noVNC package."
   else
     warn "Could not download noVNC — the in-dashboard remote browser won't display."
   fi

@@ -353,24 +353,30 @@ label input, label select { margin-top: 6px; }
 .cloud-tools .btn[disabled] { opacity: 0.4; pointer-events: none; }
 .cloud-hint { flex-basis: 100%; font-size: 0.76rem; }
 
+/* The dashboard is a 780px column, which is exactly what made the desktop look
+   postage-stamp sized on a laptop. The Cloud tab sets .cloud-mode on <body> so
+   the column constraint and the bottom padding lift for this screen only.
+   A class beats :has() here — no support caveat, and it cannot lose on
+   specificity to the base rule. */
+body.cloud-mode .container { max-width: none; padding-bottom: 14px; }
+body.cloud-mode .tabs { max-width: none; }
+
 .cloud-stage {
   margin-top: 10px; background: #000;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   overflow: hidden;
-  /* Header + tabbar + the cloud bar; the rest of the viewport is the desktop. */
-  height: calc(100vh - 230px); min-height: 420px;
+  /* Everything the header, tab row and cloud bar take; the rest is desktop. */
+  height: calc(100vh - 250px); min-height: 340px;
 }
 .cloud-stage:fullscreen { height: 100vh; min-height: 0; border: 0; border-radius: 0; margin: 0; }
 .cloud-frame { width: 100%; height: 100%; border: 0; display: block; background: #000; }
 
-/* Give the stage the whole viewport on a laptop, where a small window is the
-   whole complaint — the bar scrolls away and the desktop stays put. */
 @media (min-width: 900px) {
-  body:has(#screen-cloud:not(.hidden)) .container { max-width: none; padding-left: 14px; padding-right: 14px; }
-  .cloud-stage { height: calc(100vh - 200px); }
+  .cloud-stage { height: calc(100vh - 215px); }
 }
 @media (max-width: 640px) {
-  .cloud-stage { height: calc(100vh - 265px); min-height: 300px; }
+  .cloud-stage { height: calc(100vh - 280px); min-height: 300px; }
+  .cloud-tools { width: 100%; }
   .cloud-tools .btn { flex: 1 1 auto; }
 }
 
