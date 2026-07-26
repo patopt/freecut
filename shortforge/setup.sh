@@ -23,6 +23,13 @@ if command -v apt-get >/dev/null 2>&1; then
     espeak-ng xvfb x11vnc curl x11-utils x11-xserver-utils
   # novnc isn't in every release's repos — don't let it fail the whole install.
   $SUDO apt-get install -y novnc || warn "novnc package unavailable; will download it instead"
+  # xrdp lets ./vnc.sh expose the same remote browser over RDP. Its config is
+  # written by vnc.sh, so keep the service down until that script sets it up.
+  if $SUDO apt-get install -y xrdp; then
+    $SUDO systemctl disable --now xrdp xrdp-sesman >/dev/null 2>&1 || true
+  else
+    warn "xrdp unavailable; ./vnc.sh will install it on demand"
+  fi
 else
   warn "apt-get not found. Make sure ffmpeg and Python 3.10-3.12 are installed."
 fi
