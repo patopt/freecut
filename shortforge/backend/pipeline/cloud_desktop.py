@@ -200,6 +200,9 @@ def status() -> dict:
         "missing": missing_deps(),
         "vnc_password": tiktok_session.vnc_password(),
         "novnc_page": tiktok_session.novnc_page(),
+        # Surfaced so a viewer that cannot boot reports why, instead of leaving
+        # the user with noVNC's opaque "Script error.".
+        "viewer": tiktok_session.novnc_report(),
     }
 
 

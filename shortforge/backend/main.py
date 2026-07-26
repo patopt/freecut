@@ -1205,17 +1205,50 @@ def service_command(_: None = Depends(require_auth)):
     return {"command": f"cd {root} && ./install-service.sh"}
 
 
-# noVNC client for the in-dashboard remote browser. Resolved at startup from
-# the copy setup.sh downloads into data/novnc, or the distro package.
-_novnc_dir = tiktok_session_mod.novnc_dir()
-if _novnc_dir:
-    try:
-        # The distro layout symlinks core/app/vendor elsewhere; without this
-        # StaticFiles 404s them and noVNC fails to boot.
-        _novnc_files = StaticFiles(directory=_novnc_dir, follow_symlink=True)
-    except TypeError:  # older Starlette without the option
-        _novnc_files = StaticFiles(directory=_novnc_dir)
-    app.mount("/novnc", _novnc_files, name="novnc")
+# noVNC client for the in-dashboard remote browser. Served by hand rather than
+# mounted as StaticFiles: the distro layout hides core/app/vendor behind
+# symlinks pointing outside the tree, and an ES module served with the wrong
+# content type is refused by the browser. Both failures surface only as a bare
+# "Script error." from noVNC, so neither is left to chance here.
+_novnc_dir = tiktok_session_mod.ensure_novnc()
+
+_NOVNC_TYPES = {
+    ".js": "text/javascript", ".mjs": "text/javascript",
+    ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
+    ".json": "application/json", ".map": "application/json",
+    ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg",
+    ".gif": "image/gif", ".ico": "image/x-icon",
+    ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf",
+    ".txt": "text/plain; charset=utf-8",
+}
+
+
+@app.get("/novnc/{asset_path:path}")
+def novnc_asset(asset_path: str):
+    if not _novnc_dir:
+        raise HTTPException(status_code=404, detail="noVNC is not installed")
+    parts = [p for p in asset_path.split("/") if p not in ("", ".")]
+    if not parts or any(p == ".." for p in parts):
+        raise HTTPException(status_code=404, detail="Not found")
+    target = Path(_novnc_dir).joinpath(*parts)
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail=f"{asset_path} missing from {_novnc_dir}")
+    media = _NOVNC_TYPES.get(target.suffix.lower(), "application/octet-stream")
+    # vnc.html loads its entry points as `<script type="module"
+    # crossorigin="anonymous">`. ES modules are always fetched with CORS
+    # semantics, and when that check fails the browser strips every detail from
+    # the error — which is exactly the useless "Script error." noVNC then
+    # displays. Allowing any origin makes the check pass however the app is
+    # reached (tunnel, reverse proxy, custom domain) and, just as importantly,
+    # restores real messages and filenames when something else breaks.
+    # These are static viewer assets: no secrets, nothing user-specific.
+    return FileResponse(target, media_type=media,
+                        headers={"Access-Control-Allow-Origin": "*"})
+
+
+@app.get("/api/novnc/diag")
+def novnc_diag(_: None = Depends(require_auth)):
+    return tiktok_session_mod.novnc_report()
 
 # Static assets (css/js) — safe to serve without auth (no secrets).
 app.mount("/static", StaticFiles(directory=config.FRONTEND_DIR), name="static")

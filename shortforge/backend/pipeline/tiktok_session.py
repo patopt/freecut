@@ -126,17 +126,73 @@ def _have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+# vnc.html alone proves nothing: Debian/Ubuntu's novnc package ships the page
+# but puts core/app/vendor behind symlinks into /usr/share/javascript, and a
+# half-served viewer fails with an opaque "Script error." instead of a 404 the
+# user can see. These are the files the app genuinely cannot boot without.
+NOVNC_REQUIRED = ("vnc.html", "core/rfb.js", "app/ui.js")
+NOVNC_TARBALL = "https://github.com/novnc/noVNC/archive/refs/tags/v1.5.0.tar.gz"
+
+
+def novnc_complete(directory: Path) -> bool:
+    # is_file() resolves symlinks, so a correctly linked distro tree passes.
+    return all((directory / rel).is_file() for rel in NOVNC_REQUIRED)
+
+
 def novnc_dir() -> Optional[str]:
-    # The downloaded copy comes first on purpose. Debian/Ubuntu's novnc package
-    # ships /usr/share/novnc/{core,app,vendor} as symlinks into
-    # /usr/share/javascript/novnc/, and StaticFiles refuses to serve a path that
-    # resolves outside the mounted directory — every ES module 404s and noVNC
-    # dies with a bare "Script error.". The tarball extraction is self-contained.
+    # The self-contained download comes first; distro trees are the fallback.
     for d in [str(config.DATA_DIR / "novnc")] + list(NOVNC_CANDIDATES):
-        p = Path(d)
-        if (p / "vnc.html").is_file() or (p / "vnc_lite.html").is_file():
-            return str(p)
+        if novnc_complete(Path(d)):
+            return str(d)
+    # Nothing complete — return whatever has the page so diagnostics can report
+    # precisely which pieces are missing rather than a bare "not installed".
+    for d in [str(config.DATA_DIR / "novnc")] + list(NOVNC_CANDIDATES):
+        if (Path(d) / "vnc.html").is_file():
+            return str(d)
     return None
+
+
+def ensure_novnc() -> Optional[str]:
+    """Return a directory that really serves a working viewer, fetching one
+    if what is installed is incomplete."""
+    for d in [config.DATA_DIR / "novnc", *(Path(c) for c in NOVNC_CANDIDATES)]:
+        if novnc_complete(d):
+            return str(d)
+
+    target = config.DATA_DIR / "novnc"
+    try:
+        import io
+        import tarfile
+        import urllib.request
+
+        with urllib.request.urlopen(NOVNC_TARBALL, timeout=60) as resp:
+            payload = resp.read()
+        shutil.rmtree(target, ignore_errors=True)
+        target.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
+            for member in tar.getmembers():
+                # Strip the release's top-level directory, and never let an
+                # archive path escape the destination.
+                rel = member.name.split("/", 1)[1] if "/" in member.name else ""
+                if not rel or rel.startswith("/") or ".." in Path(rel).parts:
+                    continue
+                member.name = rel
+                tar.extract(member, target)
+    except Exception:  # noqa: BLE001 — diagnostics will report what is missing
+        pass
+    return novnc_dir()
+
+
+def novnc_report() -> dict:
+    """What the viewer directory actually contains — shown in the UI when the
+    client fails to start, so the cause is visible instead of guessed at."""
+    d = novnc_dir()
+    files: dict[str, str] = {}
+    if d:
+        for rel in NOVNC_REQUIRED:
+            p = Path(d) / rel
+            files[rel] = "ok" if p.is_file() else ("broken symlink" if p.is_symlink() else "missing")
+    return {"dir": d or "", "complete": bool(d) and novnc_complete(Path(d)), "files": files}
 
 
 def novnc_page() -> str:

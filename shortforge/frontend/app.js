@@ -114,9 +114,19 @@ function renderCloud(s) {
   ['btn-cloud-browser', 'btn-cloud-fit', 'btn-cloud-full', 'btn-cloud-pop', 'btn-cloud-stop']
     .forEach((id) => { $(id).disabled = !cur; });
 
-  box.textContent = cur
-    ? `${cur.desktop} · ${cur.width}×${cur.height} · ${list.length}/${cloudState.max_sessions} running`
-    : `${cloudState.desktop || 'No desktop'} installed. Press “New desktop” to start one.`;
+  const v = cloudState.viewer || {};
+  if (v.dir && v.complete === false) {
+    // noVNC reports every load failure as a bare "Script error.", so say which
+    // files are actually missing rather than leaving the user guessing.
+    const bad = Object.entries(v.files || {}).filter(([, st]) => st !== 'ok')
+      .map(([f, st]) => `${f} (${st})`).join(', ');
+    box.textContent = `Viewer broken in ${v.dir}: ${bad || 'incomplete'}. `
+      + 'Run: rm -rf data/novnc && ./setup.sh';
+  } else {
+    box.textContent = cur
+      ? `${cur.desktop} · ${cur.width}×${cur.height} · ${list.length}/${cloudState.max_sessions} running`
+      : `${cloudState.desktop || 'No desktop'} installed. Press “New desktop” to start one.`;
+  }
 
   if (cur && cloudMountedId !== cur.id) mountCloudFrame(cur);
   if (!cur) unmountCloudFrame();
