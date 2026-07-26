@@ -25,6 +25,7 @@ from . import auth, config, db, worker
 from .pipeline import autopublish as autopublish_mod
 from .pipeline import captions as captions_mod
 from .pipeline import channels as channels_mod
+from .pipeline import cloud_desktop as cloud_mod
 from .pipeline import tiktok_maki as tiktok_maki_mod
 from .pipeline import tiktok_session as tiktok_session_mod
 from .pipeline import translate as translate_mod
@@ -49,6 +50,7 @@ def _shutdown() -> None:
     worker.stop_worker()
     autopublish_mod.stop_scheduler()
     tiktok_session_mod.shutdown()
+    cloud_mod.stop()
 
 
 # --- auth helpers -----------------------------------------------------------
@@ -729,6 +731,39 @@ def tiktok_session_status(_: None = Depends(require_auth)):
     return tiktok_session_mod.status()
 
 
+# --- Cloud desktop ----------------------------------------------------------
+
+@app.get("/api/cloud/status")
+def cloud_status(_: None = Depends(require_auth)):
+    return cloud_mod.status()
+
+
+@app.post("/api/cloud/start")
+async def cloud_start(_: None = Depends(require_auth)):
+    try:
+        # Bringing up a desktop takes seconds; keep the event loop free.
+        return await asyncio.to_thread(cloud_mod.start)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/cloud/stop")
+async def cloud_stop(_: None = Depends(require_auth)):
+    return await asyncio.to_thread(cloud_mod.stop)
+
+
+@app.post("/api/cloud/browser")
+async def cloud_browser(request: Request, _: None = Depends(require_auth)):
+    body = await request.json()
+    url = str(body.get("url", "")).strip() or "https://www.google.com"
+    profile = str(body.get("profile", "")).strip() or "cloud"
+    try:
+        await asyncio.to_thread(cloud_mod.launch_browser, profile, url)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True}
+
+
 @app.post("/api/tiktok/session/start")
 async def tiktok_session_start(request: Request, _: None = Depends(require_auth)):
     body = await request.json()
@@ -773,6 +808,16 @@ async def tiktok_session_stop(request: Request, _: None = Depends(require_auth))
 @app.websocket("/api/vnc/ws")
 async def vnc_bridge(ws: WebSocket):
     """Bridge noVNC (WebSocket, binary RFB) to the local x11vnc TCP port."""
+    await _rfb_proxy(ws, tiktok_session_mod.VNC_PORT)
+
+
+@app.websocket("/api/cloud/ws")
+async def cloud_vnc_bridge(ws: WebSocket):
+    """Same bridge, for the cloud desktop's own display."""
+    await _rfb_proxy(ws, cloud_mod.VNC_PORT)
+
+
+async def _rfb_proxy(ws: WebSocket, port: int) -> None:
     if not auth.valid_session(ws.cookies.get(auth.COOKIE_NAME)):
         await ws.close(code=1008)
         return
@@ -785,7 +830,7 @@ async def vnc_bridge(ws: WebSocket):
     else:
         await ws.accept()
     try:
-        reader, writer = await asyncio.open_connection("127.0.0.1", tiktok_session_mod.VNC_PORT)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
     except Exception:  # noqa: BLE001
         await ws.close(code=1011)
         return

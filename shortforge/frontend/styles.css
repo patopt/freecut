@@ -335,6 +335,20 @@ label input, label select { margin-top: 6px; }
 .remote-bar > div { display: flex; gap: 8px; }
 .remote-frame { width: 100%; height: min(70vh, 640px); border: 1px solid var(--border); border-radius: var(--radius-sm); background: #000; }
 
+/* ---------- Cloud desktop ---------- */
+/* The desktop is the content here, so it gets the tallest viewport we can give
+   it without pushing the toolbar off screen. */
+.cloud-stage {
+  margin-top: 12px; background: #000;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  overflow: hidden; height: calc(100vh - 260px); min-height: 380px;
+}
+.cloud-stage:fullscreen { height: 100vh; min-height: 0; border: 0; border-radius: 0; margin: 0; }
+.cloud-frame { width: 100%; height: 100%; border: 0; display: block; background: #000; }
+@media (max-width: 640px) {
+  .cloud-stage { height: calc(100vh - 300px); min-height: 300px; }
+}
+
 /* ---------- Dub detail ---------- */
 .dub-actions-row { display: flex; gap: 10px; margin: 14px 0; }
 .dub-actions-row .btn { flex: 1; }

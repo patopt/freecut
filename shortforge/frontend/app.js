@@ -48,9 +48,87 @@ function switchMode(mode) {
   $('screen-clip').classList.toggle('hidden', mode !== 'clip');
   $('screen-copy').classList.toggle('hidden', mode !== 'copy');
   $('screen-logs').classList.toggle('hidden', mode !== 'logs');
+  $('screen-cloud').classList.toggle('hidden', mode !== 'cloud');
   if (mode === 'clip') { stopChannelPoll(); loadJobs(); }
   else if (mode === 'logs') { stopChannelPoll(); closeStreams(); loadLogs(); }
+  else if (mode === 'cloud') { stopChannelPoll(); closeStreams(); loadCloud(); }
   else { closeStreams(); switchSub('sources'); }
+}
+
+// ===================== CLOUD DESKTOP =======================================
+
+// Tracked separately: an iframe with src='' reports the document URL back, so
+// reading .src is not a reliable "is it mounted" test.
+let cloudMounted = false;
+
+function unmountCloudFrame() {
+  $('cloud-frame').src = 'about:blank';
+  cloudMounted = false;
+}
+
+function renderCloud(s) {
+  const stage = $('cloud-stage');
+  const box = $('cloud-status');
+  if (s.missing && s.missing.length) {
+    box.textContent = `Not available: ${s.missing.join(', ')} missing. Run ./setup.sh again.`;
+    stage.classList.add('hidden');
+    return;
+  }
+  box.textContent = s.running
+    ? `Running — ${s.desktop} at ${s.screen}. Password: ${(s.vnc_password || '').slice(0, 8)}`
+    : `Stopped. ${s.desktop} is installed and ready.`;
+  stage.classList.toggle('hidden', !s.running);
+  if (s.running && !cloudMounted) { mountCloudFrame(s); cloudMounted = true; }
+  if (!s.running) unmountCloudFrame();
+}
+
+function mountCloudFrame(s) {
+  const secure = window.location.protocol === 'https:';
+  const params = new URLSearchParams({
+    autoconnect: '1', resize: 'remote', reconnect: '1',
+    host: window.location.hostname,
+    port: window.location.port || (secure ? '443' : '80'),
+    encrypt: secure ? '1' : '0',
+    path: 'api/cloud/ws',
+    password: s.vnc_password,
+  });
+  $('cloud-frame').src = `/novnc/${s.novnc_page || 'vnc.html'}?${params.toString()}`;
+}
+
+async function loadCloud() {
+  try { renderCloud(await api('/api/cloud/status')); }
+  catch (e) { $('cloud-status').textContent = e.message; }
+}
+
+async function cloudStart() {
+  const btn = $('btn-cloud-start');
+  btn.disabled = true;
+  $('cloud-status').textContent = 'Starting the desktop…';
+  try {
+    unmountCloudFrame();   // force a fresh connection to the new session
+    renderCloud(await api('/api/cloud/start', { method: 'POST' }));
+  } catch (e) { $('cloud-status').textContent = e.message; }
+  finally { btn.disabled = false; }
+}
+
+async function cloudStop() {
+  try {
+    unmountCloudFrame();
+    renderCloud(await api('/api/cloud/stop', { method: 'POST' }));
+  } catch (e) { $('cloud-status').textContent = e.message; }
+}
+
+async function cloudBrowser() {
+  const url = prompt('Open which URL?', 'https://www.google.com');
+  if (url === null) return;
+  try { await api('/api/cloud/browser', { method: 'POST', body: JSON.stringify({ url }) }); }
+  catch (e) { alert(e.message); }
+}
+
+function cloudFullscreen() {
+  const stage = $('cloud-stage');
+  if (document.fullscreenElement) document.exitFullscreen();
+  else if (stage.requestFullscreen) stage.requestFullscreen();
 }
 
 // ===================== TOOL LOGS ===========================================
@@ -1342,6 +1420,10 @@ async function clearQueues() {
 // ===================== wire up =============================================
 
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => switchMode(t.dataset.mode)));
+$('btn-cloud-start').addEventListener('click', cloudStart);
+$('btn-cloud-stop').addEventListener('click', cloudStop);
+$('btn-cloud-browser').addEventListener('click', cloudBrowser);
+$('btn-cloud-full').addEventListener('click', cloudFullscreen);
 document.querySelectorAll('.subtab').forEach((t) => t.addEventListener('click', () => switchSub(t.dataset.sub)));
 
 $('btn-create').addEventListener('click', createJob);

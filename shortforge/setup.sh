@@ -23,6 +23,15 @@ if command -v apt-get >/dev/null 2>&1; then
     espeak-ng xvfb x11vnc curl x11-utils x11-xserver-utils
   # novnc isn't in every release's repos — don't let it fail the whole install.
   $SUDO apt-get install -y novnc || warn "novnc package unavailable; will download it instead"
+  # Desktop for the dashboard's Cloud tab. XFCE core only — the full xfce4
+  # metapackage drags in goodies this box does not need. Fluxbox is the
+  # fallback when XFCE is unavailable; the app detects whichever is installed.
+  if ! $SUDO apt-get install -y xfce4-session xfwm4 xfce4-panel xfdesktop4 \
+       thunar xfce4-terminal dbus-x11 mousepad; then
+    warn "XFCE unavailable; falling back to a lightweight desktop"
+    $SUDO apt-get install -y fluxbox tint2 pcmanfm xterm \
+      || warn "No desktop installed; the Cloud tab will be unavailable"
+  fi
   # xrdp lets ./vnc.sh expose the same remote browser over RDP. Its config is
   # written by vnc.sh, so keep the service down until that script sets it up.
   if $SUDO apt-get install -y xrdp; then

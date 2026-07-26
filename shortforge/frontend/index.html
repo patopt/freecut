@@ -19,6 +19,7 @@
   <nav class="tabs">
     <button class="tab active" data-mode="clip">✂️ Clip</button>
     <button class="tab" data-mode="copy">🎙️ Copy</button>
+    <button class="tab" data-mode="cloud">☁️ Cloud</button>
     <button class="tab" data-mode="logs">📋 Tool Logs</button>
   </nav>
 
@@ -265,6 +266,29 @@
           <h2 class="section-title">Publication queue</h2>
           <div id="tt-items" class="jobs"></div>
         </section>
+      </div>
+    </section>
+
+    <!-- ============ CLOUD DESKTOP SCREEN ============ -->
+    <section id="screen-cloud" class="hidden">
+      <div class="card">
+        <div class="channel-head">
+          <h2>Cloud desktop</h2>
+          <div class="dub-actions-row">
+            <button id="btn-cloud-start" class="btn small primary">▶ Start</button>
+            <button id="btn-cloud-browser" class="btn small">🌐 Browser</button>
+            <button id="btn-cloud-full" class="btn small">⛶ Fullscreen</button>
+            <button id="btn-cloud-stop" class="btn small danger">⏹ Stop</button>
+          </div>
+        </div>
+        <p class="muted">A full desktop running on the VPS, streamed here. Use it to log
+        into anything by hand, inspect files, or run a terminal. It only consumes memory
+        while it is running — press Stop when you are done.</p>
+        <div id="cloud-status" class="meta-val">…</div>
+      </div>
+      <div id="cloud-stage" class="cloud-stage hidden">
+        <iframe id="cloud-frame" class="cloud-frame"
+                allow="clipboard-read; clipboard-write"></iframe>
       </div>
     </section>
 
