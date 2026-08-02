@@ -29,6 +29,9 @@
   </array>
   <!-- The dashboard is typically reached over a user-supplied host (an ngrok
        tunnel or a bare LAN IP), so plain HTTP has to stay reachable. -->
+  <!-- The editor can write a finished clip straight to the camera roll. -->
+  <key>NSPhotoLibraryAddUsageDescription</key>
+  <string>ShortForge saves clips you export to your photo library.</string>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsArbitraryLoads</key><true/></dict>
 </dict>

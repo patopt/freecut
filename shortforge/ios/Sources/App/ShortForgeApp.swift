@@ -73,6 +73,9 @@ struct MainTabView: View {
                 .tabItem { Label("Copy", systemImage: "waveform") }
                 .badge(state.stats.dubsRunning)
 
+            CloudView()
+                .tabItem { Label("Cloud", systemImage: "desktopcomputer") }
+
             LogsView()
                 .tabItem { Label("Activity", systemImage: "list.bullet.rectangle") }
 

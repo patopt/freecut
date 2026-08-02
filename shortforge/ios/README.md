@@ -7,16 +7,26 @@ web interface uses and signs in with the same dashboard password.
 
 - **Clip** — overview counters, the job list with live progress, a composer for
   new batches (count, length preset, aspect, captions), and a detail screen with
-  the generated shorts, inline playback, virality signals and a share sheet.
+  the generated shorts, inline playback and virality signals.
+- **Editor** — open any rendered short and trim it on a thumbnail filmstrip with
+  draggable in/out handles, change speed, mute, then export to Photos or a share
+  sheet. The clip is downloaded first and edited locally, so scrubbing stays
+  instant even when the tunnel is slow.
 - **Copy** — source channels, their fetched shorts, and a refresh action.
+- **Cloud** — the VPS's desktop, streamed into the app over noVNC, with
+  fullscreen, several sessions, the VNC password, and a button to launch a
+  browser on it. This is where you sign in to Google, TikTok or NordVPN, since
+  those flows need a real browser.
 - **Activity** — the Tool Logs feed, filterable by clips / translations /
   publishing.
-- **Settings** — server address (changeable at any time), reachability, queue
-  pause, pipeline counters, sign out.
+- **Settings** — full parity with the web dashboard: server address, queue
+  pause and clear, Gemini key and model, Whisper model, TTS engine, ngrok token,
+  watermark (with a live preview), default caption style and background music,
+  YouTube cookie behaviour, VPN status / rotation / country switching, connected
+  publishing accounts, and pipeline counters.
 
-Everything else — API keys, publishing accounts, the watermark, the cloud
-desktop — stays in the web dashboard. This app is the remote control, not a
-replacement.
+The only things that stay web-only are the flows that genuinely need a desktop
+browser — and the Cloud tab gives you one.
 
 ## Building locally
 

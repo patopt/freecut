@@ -180,6 +180,7 @@ struct ShortPlayerView: View {
     let short: Short
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
+    @State private var editing = false
 
     var body: some View {
         NavigationStack {
@@ -224,12 +225,21 @@ struct ShortPlayerView: View {
                     Button("Done") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if let url = downloadURL { ShareLink(item: url) }
+                    HStack(spacing: Theme.Space.md) {
+                        Button { editing = true } label: {
+                            Image(systemName: "slider.horizontal.below.rectangle")
+                        }
+                        .accessibilityLabel("Edit this clip")
+                        if let url = downloadURL { ShareLink(item: url) }
+                    }
                 }
             }
         }
         .task { await preparePlayer() }
         .onDisappear { player?.pause() }
+        .fullScreenCover(isPresented: $editing) {
+            EditorView(short: short)
+        }
     }
 
     private var hasSignals: Bool { short.signalTotal > 0 }

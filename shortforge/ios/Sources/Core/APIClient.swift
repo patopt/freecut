@@ -211,4 +211,117 @@ actor APIClient {
     func clearFailedJobs() async throws {
         _ = try await send("/api/jobs/clear-failed", method: "POST")
     }
+
+    func clearQueues() async throws {
+        _ = try await send("/api/system/clear-queues", method: "POST")
+    }
+
+    // MARK: - Settings
+
+    func settings() async throws -> ServerSettings {
+        try await get("/api/settings", as: ServerSettings.self)
+    }
+
+    /// The settings endpoint takes a sparse body and only writes what it is
+    /// given, so partial updates are the normal case rather than a special one.
+    func updateSettings(_ patch: [String: Any]) async throws {
+        _ = try await send("/api/settings", method: "POST", body: patch)
+    }
+
+    private struct CaptionStyleList: Decodable { let styles: [CaptionStyle] }
+    private struct MusicList: Decodable { let music: [MusicTrack] }
+    private struct YouTubeAccountList: Decodable { let accounts: [YouTubeAccount] }
+    private struct TikTokAccountList: Decodable { let accounts: [TikTokAccount] }
+    private struct MyChannelList: Decodable { let channels: [MyChannel] }
+
+    func captionStyles() async throws -> [CaptionStyle] {
+        try await get("/api/caption-styles", as: CaptionStyleList.self).styles
+    }
+
+    func music() async throws -> [MusicTrack] {
+        try await get("/api/music", as: MusicList.self).music
+    }
+
+    func youtubeAccounts() async throws -> [YouTubeAccount] {
+        try await get("/api/youtube/accounts", as: YouTubeAccountList.self).accounts
+    }
+
+    func tiktokAccounts() async throws -> [TikTokAccount] {
+        try await get("/api/tiktok/accounts", as: TikTokAccountList.self).accounts
+    }
+
+    func myChannels() async throws -> [MyChannel] {
+        try await get("/api/my-channels", as: MyChannelList.self).channels
+    }
+
+    // MARK: - VPN
+
+    func vpnStatus() async throws -> VPNStatus {
+        try await get("/api/vpn/status", as: VPNStatus.self)
+    }
+
+    func vpnRotate() async throws { _ = try await send("/api/vpn/rotate", method: "POST") }
+    func vpnDisconnect() async throws { _ = try await send("/api/vpn/disconnect", method: "POST") }
+
+    func vpnConnect(country: String) async throws {
+        _ = try await send("/api/vpn/connect", method: "POST", body: ["country": country])
+    }
+
+    // MARK: - Cloud desktop
+
+    func cloudStatus() async throws -> CloudStatus {
+        try await get("/api/cloud/status", as: CloudStatus.self)
+    }
+
+    func cloudStart(width: Int, height: Int) async throws -> CloudSession {
+        let data = try await send("/api/cloud/sessions", method: "POST",
+                                  body: ["width": width, "height": height])
+        return try decoder.decode(CloudSession.self, from: data)
+    }
+
+    func cloudStop(_ id: String) async throws {
+        _ = try await send("/api/cloud/sessions/\(id)/stop", method: "POST")
+    }
+
+    func cloudStopAll() async throws {
+        _ = try await send("/api/cloud/stop-all", method: "POST")
+    }
+
+    func cloudResize(_ id: String, width: Int, height: Int) async throws {
+        _ = try await send("/api/cloud/sessions/\(id)/resize", method: "POST",
+                           body: ["width": width, "height": height])
+    }
+
+    func cloudBrowser(_ id: String, url: String) async throws {
+        _ = try await send("/api/cloud/sessions/\(id)/browser", method: "POST",
+                           body: ["url": url])
+    }
+
+    /// The noVNC viewer address, with the connection parameters the page reads
+    /// from its query string. Loaded in a web view that already carries the
+    /// dashboard's session cookie.
+    func cloudViewerURL(session: CloudSession, password: String, page: String) -> URL? {
+        guard let base = baseURL, let host = base.host else { return nil }
+        let secure = base.scheme == "https"
+        var items = [
+            URLQueryItem(name: "autoconnect", value: "1"),
+            URLQueryItem(name: "reconnect", value: "1"),
+            URLQueryItem(name: "resize", value: "scale"),
+            URLQueryItem(name: "host", value: host),
+            URLQueryItem(name: "port", value: base.port.map(String.init) ?? (secure ? "443" : "80")),
+            URLQueryItem(name: "encrypt", value: secure ? "1" : "0"),
+            URLQueryItem(name: "path", value: "api/cloud/ws/\(session.id)"),
+        ]
+        if !password.isEmpty { items.append(URLQueryItem(name: "password", value: password)) }
+        var comps = URLComponents(string: base.absoluteString + "/novnc/" + page)
+        comps?.queryItems = items
+        return comps?.url
+    }
+
+    /// Cookies for the dashboard host, so a web view can be primed with the
+    /// session before it loads the viewer.
+    func sessionCookies() -> [HTTPCookie] {
+        guard let base = baseURL else { return [] }
+        return HTTPCookieStorage.shared.cookies(for: base) ?? []
+    }
 }
