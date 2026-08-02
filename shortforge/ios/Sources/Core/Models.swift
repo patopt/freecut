@@ -186,6 +186,33 @@ struct SourceChannel: Decodable, Identifiable, Hashable {
     }
 }
 
+/// A translation attached to a source video, as embedded in the channel listing.
+struct DubRef: Decodable, Identifiable, Hashable {
+    var id = ""
+    var lang = ""
+    var status = "queued"
+    var progress = 0
+
+    private enum Key: String, CodingKey { case id, lang, status, progress }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Key.self)
+        id = c.string(.id, or: "")
+        lang = c.string(.lang, or: "??")
+        status = c.string(.status, or: "queued")
+        progress = c.int(.progress, or: 0)
+    }
+
+    /// What the chip reads: language, plus progress while it is still working.
+    var label: String {
+        switch status {
+        case "done": return "▶ " + lang.uppercased()
+        case "error": return lang.uppercased() + " ✕"
+        default: return "\(lang.uppercased()) \(progress)%"
+        }
+    }
+}
+
 struct ChannelShort: Decodable, Identifiable, Hashable {
     var id = ""
     var videoId: String?
@@ -195,9 +222,11 @@ struct ChannelShort: Decodable, Identifiable, Hashable {
     /// stores what the listing returned rather than re-hosting the image.
     var thumb: String?
     var duration: Double?
+    /// Translations already queued or finished for this video.
+    var dubs: [DubRef] = []
 
     private enum Key: String, CodingKey {
-        case id, title, url, thumb, duration
+        case id, title, url, thumb, duration, dubs
         case videoId = "video_id"
     }
 
@@ -209,6 +238,38 @@ struct ChannelShort: Decodable, Identifiable, Hashable {
         url = c.string(.url)
         thumb = c.string(.thumb)
         duration = c.double(.duration)
+        dubs = ((try? c.decodeIfPresent([DubRef].self, forKey: .dubs)) ?? nil) ?? []
+    }
+}
+
+/// A translation in full, as returned by /api/dubs/{id}.
+struct Dub: Decodable, Identifiable, Hashable {
+    var id = ""
+    var shortId = ""
+    var lang = ""
+    var status = "queued"
+    var progress = 0
+    var stage: String?
+    var message: String?
+    var error: String?
+    var log: String?
+
+    private enum Key: String, CodingKey {
+        case id, lang, status, progress, stage, message, error, log
+        case shortId = "short_id"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Key.self)
+        id = c.string(.id, or: "")
+        shortId = c.string(.shortId, or: "")
+        lang = c.string(.lang, or: "")
+        status = c.string(.status, or: "queued")
+        progress = c.int(.progress, or: 0)
+        stage = c.string(.stage)
+        message = c.string(.message)
+        error = c.string(.error)
+        log = c.string(.log)
     }
 }
 

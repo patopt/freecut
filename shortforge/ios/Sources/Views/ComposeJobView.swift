@@ -1,14 +1,15 @@
 import SwiftUI
 
-/// The "new shorts" composer, mirroring the web form's options.
+/// The "new shorts" composer. Every field the web form has, so a job queued
+/// from the phone is the same job.
 struct ComposeJobView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var state: AppState
 
     var onCreated: () async -> Void
 
-    // Same reason as RemoteThumbnail: private @State/@Environment members make
-    // the memberwise initializer private.
+    // Private @State/@Environment members make the memberwise initializer
+    // private, and this view is presented from another file.
     init(onCreated: @escaping () async -> Void) {
         self.onCreated = onCreated
     }
@@ -18,6 +19,11 @@ struct ComposeJobView: View {
     @State private var captions = true
     @State private var lengthIndex = 0
     @State private var aspect = "9:16"
+    @State private var reframe = "face"
+    @State private var captionStyle = ""
+    @State private var musicId = ""
+    @State private var styles: [CaptionStyle] = []
+    @State private var tracks: [MusicTrack] = []
     @State private var busy = false
 
     /// Same presets as the web Length dropdown.
@@ -51,7 +57,31 @@ struct ComposeJobView: View {
                         Text("16:9 Wide").tag("16:9")
                     }
 
+                    Picker("Reframe", selection: $reframe) {
+                        Text("Face tracking").tag("face")
+                        Text("Center crop").tag("center")
+                    }
+                }
+
+                Section("Captions") {
                     Toggle("Burn in captions", isOn: $captions)
+                    if captions {
+                        Picker("Style", selection: $captionStyle) {
+                            Text("Server default").tag("")
+                            ForEach(styles) { Text($0.name).tag($0.id) }
+                        }
+                    }
+                }
+
+                Section {
+                    Picker("Background music", selection: $musicId) {
+                        Text("None").tag("")
+                        ForEach(tracks) { Text($0.name).tag($0.id) }
+                    }
+                } footer: {
+                    Text(tracks.isEmpty
+                         ? "Upload MP3s from the web dashboard to use them here."
+                         : "Mixed under the original audio with side-chain ducking.")
                 }
 
                 Section {
@@ -75,7 +105,16 @@ struct ComposeJobView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .task { await loadOptions() }
         }
+    }
+
+    private func loadOptions() async {
+        // Best effort: the composer stays usable on an older server that has
+        // no preset endpoints.
+        let s = (try? await APIClient.shared.captionStyles()) ?? []
+        let m = (try? await APIClient.shared.music()) ?? []
+        await MainActor.run { styles = s; tracks = m }
     }
 
     private func create() async {
@@ -84,7 +123,9 @@ struct ComposeJobView: View {
         await state.perform("Could not queue the job") {
             try await APIClient.shared.createJob(
                 url: url.trimmingCharacters(in: .whitespaces), count: count,
-                captions: captions, minLen: preset.min, maxLen: preset.max, aspect: aspect)
+                captions: captions, minLen: preset.min, maxLen: preset.max,
+                aspect: aspect, reframe: reframe,
+                captionStyle: captions ? captionStyle : "", musicId: musicId)
         }
         busy = false
         await onCreated()

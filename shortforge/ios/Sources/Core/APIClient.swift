@@ -180,12 +180,19 @@ actor APIClient {
 
     // MARK: - Writes
 
+    /// Mirrors the web form field for field, so a job queued from the phone is
+    /// identical to one queued from the dashboard.
     func createJob(url: String, count: Int, captions: Bool,
-                   minLen: Double, maxLen: Double, aspect: String) async throws {
-        _ = try await send("/api/jobs", method: "POST", body: [
+                   minLen: Double, maxLen: Double, aspect: String,
+                   reframe: String, captionStyle: String, musicId: String) async throws {
+        var body: [String: Any] = [
             "url": url, "count": count, "captions": captions,
             "min_len": minLen, "max_len": maxLen, "aspect": aspect,
-        ])
+            "reframe": reframe,
+        ]
+        if !captionStyle.isEmpty { body["caption_style"] = captionStyle }
+        if !musicId.isEmpty { body["music_id"] = musicId }
+        _ = try await send("/api/jobs", method: "POST", body: body)
     }
 
     func deleteJob(_ id: String) async throws {
@@ -338,6 +345,39 @@ actor APIClient {
         var body: [String: Any] = ["lang": lang]
         if !destChannelId.isEmpty { body["dest_channel_id"] = destChannelId }
         _ = try await send("/api/shorts-src/\(shortId)/dub", method: "POST", body: body)
+    }
+
+    // MARK: - Dubs
+
+    private struct MyChannelDetail: Decodable { let dubs: [Dub]? }
+
+    func dubDetail(_ id: String) async throws -> Dub {
+        try await get("/api/dubs/\(id)", as: Dub.self)
+    }
+
+    func retryDub(_ id: String) async throws {
+        _ = try await send("/api/dubs/\(id)/retry", method: "POST")
+    }
+
+    func deleteDub(_ id: String) async throws {
+        _ = try await send("/api/dubs/\(id)", method: "DELETE")
+    }
+
+    func publishDub(_ id: String, to target: String) async throws {
+        _ = try await send("/api/dubs/\(id)/publish-to", method: "POST",
+                           body: ["target_id": target])
+    }
+
+    func dubsForChannel(_ id: String) async throws -> [Dub] {
+        try await get("/api/my-channels/\(id)", as: MyChannelDetail.self).dubs ?? []
+    }
+
+    func createMyChannel(name: String) async throws {
+        _ = try await send("/api/my-channels", method: "POST", body: ["name": name])
+    }
+
+    func publishNow(targetId: String) async throws {
+        _ = try await send("/api/channels-out/\(targetId)/publish-now", method: "POST")
     }
 
     /// The session token, for use as ?token= on the VNC WebSocket. A web view's

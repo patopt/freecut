@@ -397,32 +397,81 @@ input[type="checkbox"] { width: 17px; height: 17px; margin: 0; accent-color: var
 .detail-meta { display: flex; align-items: center; gap: var(--sp-3);
   flex-wrap: wrap; margin-bottom: var(--sp-2); }
 
-/* -- media grids -- */
+/* -- media grids --
+   Class names here mirror exactly what app.js emits; the markup for these
+   cards is built in JS, so a rename in the stylesheet silently unstyles a
+   whole screen. -- */
 .shorts-grid {
   display: grid; gap: var(--sp-3);
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
 }
-.short-card {
+
+.short {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); overflow: hidden; cursor: pointer;
+  border-radius: var(--radius-sm); overflow: hidden;
+  display: flex; flex-direction: column;
   transition: border-color var(--fast) var(--ease), transform var(--fast) var(--ease);
 }
-.short-card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
-.short-thumb { width: 100%; aspect-ratio: 9 / 16; object-fit: cover;
-  background: var(--surface-3); display: block; }
-.short-body { padding: var(--sp-3); }
-.short-title { font-size: 0.82rem; font-weight: 600; line-height: 1.35;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.short-sub { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+.short:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+
+.thumb {
+  width: 100%; aspect-ratio: 9 / 16; object-fit: cover;
+  background: var(--surface-3); display: block; cursor: pointer;
+}
+/* Source thumbnails come from YouTube at 16:9 even for vertical Shorts. */
+#cshorts .thumb, .pick-card .thumb { aspect-ratio: 16 / 9; }
+.thumb-fallback {
+  display: grid; place-items: center;
+  font-size: 1.4rem; color: var(--muted);
+}
+
+.short-body { padding: var(--sp-3); display: grid; gap: var(--sp-2); }
+.short-title {
+  font-size: 0.82rem; font-weight: 600; line-height: 1.35; cursor: pointer;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.short-title:hover { color: var(--accent); }
+.short-sub { font-size: 0.72rem; color: var(--muted); }
+.short-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-2); font-size: 0.72rem; color: var(--muted);
+}
+.score {
+  font-weight: 700; color: var(--warning);
+  font-variant-numeric: tabular-nums;
+}
+.dl { color: var(--info); text-decoration: none; font-weight: 600; }
+.dl:hover { text-decoration: underline; }
+.hook-text {
+  font-size: 0.72rem; color: var(--text-2); line-height: 1.4;
+  background: var(--surface-2); border-radius: var(--radius-xs);
+  padding: 5px 7px;
+}
+
+/* -- translation chips on a source card -- */
+.dub-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.dub-chip {
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
+  font: inherit; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.03em;
+  padding: 3px 8px; border-radius: var(--radius-pill); cursor: pointer;
+  transition: background var(--fast) var(--ease);
+}
+.dub-chip:hover { background: var(--surface-3); color: var(--text); }
+.dub-chip.done   { background: rgba(16, 185, 129, 0.16); color: #6ee7b7; border-color: transparent; }
+.dub-chip.err    { background: rgba(239, 68, 68, 0.16);  color: #fca5a5; border-color: transparent; }
+.dub-chip.active { background: rgba(56, 189, 248, 0.16); color: #7dd3fc; border-color: transparent; }
+:root[data-theme="light"] .dub-chip.done   { color: #047857; }
+:root[data-theme="light"] .dub-chip.err    { color: #b42318; }
+:root[data-theme="light"] .dub-chip.active { color: #0369a1; }
+.translate-btn { width: 100%; justify-content: center; }
 
 /* -- virality bars -- */
-.virality { display: grid; gap: 5px; margin-top: var(--sp-3); }
-.vir-row { display: grid; grid-template-columns: 54px 1fr 30px; align-items: center;
-  gap: var(--sp-2); font-size: 0.7rem; color: var(--muted); }
-.vir-track { height: 4px; background: var(--surface-3); border-radius: 99px; overflow: hidden; }
+.virality { display: grid; gap: 5px; }
+.vir-row { display: grid; grid-template-columns: 42px 1fr; align-items: center;
+  gap: var(--sp-2); font-size: 0.66rem; color: var(--muted); text-transform: capitalize; }
+.vir-bar { height: 4px; background: var(--surface-3); border-radius: 99px; overflow: hidden; }
 .vir-fill { height: 100%; border-radius: 99px;
   background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
-.vir-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2); }
 
 /* -- picker grid (choose videos) -- */
 .pick-grid { display: grid; gap: var(--sp-2);
@@ -677,3 +726,51 @@ input[type="checkbox"] { width: 17px; height: 17px; margin: 0; accent-color: var
 
 /* The cloud desktop wants every pixel; the reading column does not apply. */
 body.cloud-mode .container { max-width: none; }
+
+/* ---------- JS-rendered rows (jobs, activity, music, pickers) ----------
+   These class names come from app.js template literals. */
+
+.job { display: flex; align-items: center; gap: var(--sp-3); }
+.job-info { flex: 1 1 auto; min-width: 0; cursor: pointer; }
+.job-sub { font-size: 0.76rem; color: var(--muted); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.row-del {
+  flex: none; border: 0; background: transparent; color: var(--muted);
+  font-size: 0.95rem; width: 32px; height: 32px; border-radius: var(--radius-xs);
+  cursor: pointer; display: grid; place-items: center;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.row-del:hover { background: rgba(239, 68, 68, 0.14); color: var(--danger); }
+.row-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); flex-wrap: wrap; }
+.retry-btn { flex: none; }
+
+.music-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-xs); padding: 8px 10px; font-size: 0.85rem;
+}
+
+.check-row {
+  display: flex; align-items: center; gap: var(--sp-2);
+  margin: 0; padding: 7px 9px; border-radius: var(--radius-xs);
+  font-size: 0.84rem; font-weight: 500; color: var(--text); cursor: pointer;
+}
+.check-row:hover { background: var(--surface-3); }
+
+/* Platform tags on a connected channel. */
+.yt-badge { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+.tt-badge { background: rgba(56, 189, 248, 0.16); color: #7dd3fc; }
+:root[data-theme="light"] .yt-badge { color: #b42318; }
+:root[data-theme="light"] .tt-badge { color: #0369a1; }
+
+/* -- video picker (auto-publish selection) -- */
+.pick-card { cursor: pointer; border: 2px solid transparent; }
+.pick-card.picked { border-color: var(--accent); }
+.pick-thumb-wrap { position: relative; }
+.pick-card .pick-tick {
+  position: absolute; top: 6px; right: 6px; width: 20px; height: 20px;
+  border-radius: 50%; display: grid; place-items: center; font-size: 0.62rem;
+  background: rgba(0, 0, 0, 0.55); color: #fff;
+}
+.pick-card.picked .pick-tick { background: var(--accent); }
