@@ -130,7 +130,17 @@ def _have(cmd: str) -> bool:
 # but puts core/app/vendor behind symlinks into /usr/share/javascript, and a
 # half-served viewer fails with an opaque "Script error." instead of a 404 the
 # user can see. These are the files the app genuinely cannot boot without.
-NOVNC_REQUIRED = ("vnc.html", "core/rfb.js", "app/ui.js")
+# A tree with only the page and the entry scripts still renders as unstyled
+# HTML with broken icons — which is what a partial distro package produces.
+# Check a file from every directory the viewer actually needs.
+NOVNC_REQUIRED = (
+    "vnc.html",
+    "core/rfb.js",
+    "app/ui.js",
+    "app/styles/base.css",
+    "app/images/error.svg",
+    "vendor/pako/lib/zlib/inflate.js",
+)
 NOVNC_TARBALL = "https://github.com/novnc/noVNC/archive/refs/tags/v1.5.0.tar.gz"
 
 
