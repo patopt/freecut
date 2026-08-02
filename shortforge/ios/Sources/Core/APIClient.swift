@@ -300,7 +300,8 @@ actor APIClient {
     /// The noVNC viewer address, with the connection parameters the page reads
     /// from its query string. Loaded in a web view that already carries the
     /// dashboard's session cookie.
-    func cloudViewerURL(session: CloudSession, password: String, page: String) -> URL? {
+    func cloudViewerURL(session: CloudSession, password: String, page: String,
+                        token: String = "") -> URL? {
         guard let base = baseURL, let host = base.host else { return nil }
         let secure = base.scheme == "https"
         var items = [
@@ -313,9 +314,38 @@ actor APIClient {
             URLQueryItem(name: "path", value: "api/cloud/ws/\(session.id)"),
         ]
         if !password.isEmpty { items.append(URLQueryItem(name: "password", value: password)) }
+        // Read by the bridge endpoint when the web view's WebSocket arrives
+        // without the session cookie.
+        if !token.isEmpty { items.append(URLQueryItem(name: "token", value: token)) }
         var comps = URLComponents(string: base.absoluteString + "/novnc/" + page)
         comps?.queryItems = items
         return comps?.url
+    }
+
+    // MARK: - Translation (Copy)
+
+    private struct LanguageMap: Decodable { let languages: [String: String] }
+    private struct TokenBox: Decodable { let token: String }
+
+    /// Language code -> display name, straight from the server's own table, so
+    /// the picker can never offer something the API will reject.
+    func languages() async throws -> [(code: String, name: String)] {
+        let map = try await get("/api/languages", as: LanguageMap.self).languages
+        return map.map { (code: $0.key, name: $0.value) }.sorted { $0.name < $1.name }
+    }
+
+    func dub(shortId: String, lang: String, destChannelId: String) async throws {
+        var body: [String: Any] = ["lang": lang]
+        if !destChannelId.isEmpty { body["dest_channel_id"] = destChannelId }
+        _ = try await send("/api/shorts-src/\(shortId)/dub", method: "POST", body: body)
+    }
+
+    /// The session token, for use as ?token= on the VNC WebSocket. A web view's
+    /// WebSocket does not reliably carry the cookie.
+    func cloudToken() async -> String {
+        guard let data = try? await send("/api/cloud/token"),
+              let box = try? decoder.decode(TokenBox.self, from: data) else { return "" }
+        return box.token
     }
 
     /// Cookies for the dashboard host, so a web view can be primed with the

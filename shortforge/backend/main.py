@@ -761,6 +761,13 @@ def tiktok_session_status(_: None = Depends(require_auth)):
 
 # --- Cloud desktop ----------------------------------------------------------
 
+@app.get("/api/cloud/token")
+def cloud_token(request: Request, _: None = Depends(require_auth)):
+    """Hand the caller back its own session token, for use as ?token= on the
+    VNC WebSocket when a cookie will not travel."""
+    return {"token": request.cookies.get(auth.COOKIE_NAME, "")}
+
+
 @app.get("/api/cloud/status")
 def cloud_status(_: None = Depends(require_auth)):
     return cloud_mod.status()
@@ -872,7 +879,12 @@ async def cloud_vnc_bridge(ws: WebSocket, session_id: str):
 
 
 async def _rfb_proxy(ws: WebSocket, port: int) -> None:
-    if not auth.valid_session(ws.cookies.get(auth.COOKIE_NAME)):
+    # A cookie is the normal path, but a WebSocket opened from inside an
+    # embedded web view (the iOS client) does not reliably carry one. The same
+    # signed session token may therefore be presented as a query parameter —
+    # it is the identical credential, over the same TLS.
+    token = ws.cookies.get(auth.COOKIE_NAME) or ws.query_params.get("token")
+    if not auth.valid_session(token):
         await ws.close(code=1008)
         return
     # Only echo a subprotocol the client actually offered — answering with one

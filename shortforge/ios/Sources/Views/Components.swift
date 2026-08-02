@@ -142,23 +142,31 @@ struct RemoteThumbnail: View {
     /// stored the URL of rather than re-hosting.
     var absolute: String?
     var aspect: CGFloat = 9.0 / 16.0
+    /// `.fill` crops to the frame, `.fit` letterboxes. Source thumbnails from
+    /// YouTube are 16:9 even for vertical Shorts, so cropping them to 9:16
+    /// shows a narrow strip of the middle and nothing recognisable.
+    var contentMode: ContentMode = .fill
 
     @State private var image: UIImage?
     @State private var failed = false
 
     // Explicit: the private @State above would otherwise make the synthesized
     // memberwise initializer private, and every call site is in another file.
-    init(path: String? = nil, absolute: String? = nil, aspect: CGFloat = 9.0 / 16.0) {
+    init(path: String? = nil, absolute: String? = nil,
+         aspect: CGFloat = 9.0 / 16.0, contentMode: ContentMode = .fill) {
         self.path = path
         self.absolute = absolute
         self.aspect = aspect
+        self.contentMode = contentMode
     }
 
     var body: some View {
         ZStack {
             Rectangle().fill(.quaternary)
             if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
             } else if failed {
                 Image(systemName: "photo").foregroundStyle(.tertiary)
             } else {
