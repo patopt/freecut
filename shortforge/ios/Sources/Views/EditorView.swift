@@ -444,7 +444,9 @@ private struct ExportSheet: View {
         }
         do {
             try await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAssetVideo(atFileURL: url)
+                // The request registers itself with the change block; the
+                // returned object is only needed to set extra properties.
+                _ = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
             }
             return "Saved to Photos."
         } catch {
