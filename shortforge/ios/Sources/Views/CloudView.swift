@@ -142,7 +142,7 @@ struct CloudView: View {
 
             Text(viewer.statusLine(fallback: "\(session.desktop) · \(session.resolution)"))
                 .font(.caption2)
-                .foregroundStyle(viewer.phase.isFailed ? Theme.danger : .tertiary)
+                .foregroundStyle(viewer.phase.isFailed ? Theme.danger : Color.secondary)
                 .padding(.bottom, Theme.Space.sm)
         }
         .alert("VNC password", isPresented: $showPassword) {
@@ -515,7 +515,7 @@ struct DesktopWebView: UIViewRepresentable {
             // Cleared first so a re-render cannot replay the same keystroke.
             Task { @MainActor in
                 viewer.pendingScript = nil
-                view.evaluateJavaScript(script)
+                _ = try? await view.evaluateJavaScript(script)
             }
         }
     }
