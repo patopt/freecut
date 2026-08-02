@@ -11,6 +11,7 @@ import json
 import re
 from typing import Optional
 
+from . import gemini_errors
 from .transcribe import Segment
 
 LANGUAGE_NAMES = {
@@ -124,4 +125,4 @@ def translate_segments(
         merged = [p if p.strip() else texts[i] for i, p in enumerate(parsed)]
         return merged, None
     except Exception as exc:  # noqa: BLE001
-        return texts, f"Translation failed ({exc}) — kept original text."
+        return texts, f"Translation failed: {gemini_errors.explain(exc)}"

@@ -917,6 +917,17 @@ async function openSettings() {
       $('yt-origin').textContent = yc.js_origin;
     } catch (_) {}
     renderYtAccounts();
+    const wm = s.watermark || {};
+    $('set-watermark-enabled').checked = !!wm.enabled;
+    $('set-watermark-text').value = wm.text || '';
+    $('set-watermark-position').innerHTML = (wm.positions || ['bottom-right'])
+      .map((p) => `<option value="${p}">${p.replace('-', ' ')}</option>`).join('');
+    $('set-watermark-position').value = wm.position || 'bottom-right';
+    $('set-watermark-size').value = String(wm.size ?? 3);
+    $('set-watermark-opacity').value = String(wm.opacity ?? 0.35);
+    $('watermark-status').textContent = wm.font_available === false
+      ? 'No font found on the server — run: sudo apt install -y fonts-dejavu-core'
+      : '';
     $('ttkey-status').textContent = s.tiktok_client_key_set ? 'Client key set ✓' : 'Not set';
     $('ttsecret-status').textContent = s.tiktok_client_secret_set ? 'Secret set ✓' : 'Not set';
     $('set-ttkey').value = ''; $('set-ttsecret').value = '';
@@ -1363,7 +1374,12 @@ async function saveSettings() {
     google_client_id: $('set-gclient').value, google_client_secret: $('set-gsecret').value,
     tiktok_client_key: $('set-ttkey').value, tiktok_client_secret: $('set-ttsecret').value,
     vpn_rotation: $('set-vpn-rotation').checked,
-    use_youtube_cookies: $('set-use-cookies').checked };
+    use_youtube_cookies: $('set-use-cookies').checked,
+    watermark_enabled: $('set-watermark-enabled').checked,
+    watermark_text: $('set-watermark-text').value,
+    watermark_position: $('set-watermark-position').value,
+    watermark_size: $('set-watermark-size').value,
+    watermark_opacity: $('set-watermark-opacity').value };
   try {
     await api('/api/settings', { method: 'POST', body: JSON.stringify(body) });
     $('settings-msg').textContent = 'Saved ✓';

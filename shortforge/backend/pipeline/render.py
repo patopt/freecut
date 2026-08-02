@@ -7,6 +7,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from . import watermark
 from .reframe import target_size
 
 # Cap per-process threads: several renders run in parallel now, and letting
@@ -36,6 +37,8 @@ def render_short(
     vf = f"crop={crop['w']}:{crop['h']}:{crop['x']}:{crop['y']},scale={tw}:{th}"
     if ass_path is not None:
         vf += f",subtitles={_escape_sub_path(ass_path)}"
+    # Last in the chain so it sits above the captions.
+    vf = watermark.append_to(vf, th)
 
     cmd = [
         "ffmpeg", "-y", "-nostats", "-loglevel", "error",

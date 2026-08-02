@@ -11,6 +11,7 @@ import json
 import re
 from typing import Optional
 
+from . import gemini_errors
 from .transcribe import Transcript
 
 PROMPT = """You are a viral short-form video editor (like Opus Clip).
@@ -166,4 +167,5 @@ def find_highlights(
             return highlights, None
         return _heuristic(duration, min_len, max_len, count), "Gemini returned no usable clips — used fallback."
     except Exception as exc:  # noqa: BLE001 — surface any SDK/network error as a note
-        return _heuristic(duration, min_len, max_len, count), f"Gemini call failed ({exc}) — used fallback."
+        return (_heuristic(duration, min_len, max_len, count),
+                f"Highlight selection fell back to even spacing. {gemini_errors.explain(exc)}")

@@ -30,6 +30,7 @@ from .pipeline import tiktok_maki as tiktok_maki_mod
 from .pipeline import tiktok_session as tiktok_session_mod
 from .pipeline import translate as translate_mod
 from .pipeline import vpn as vpn_mod
+from .pipeline import watermark as watermark_mod
 from .pipeline import youtube as youtube_mod
 
 app = FastAPI(title="ShortForge")
@@ -138,6 +139,9 @@ def get_settings(_: None = Depends(require_auth)):
         "use_youtube_cookies": db.use_youtube_cookies(),
         "tiktok_client_key_set": bool(db.effective("tiktok_client_key")),
         "tiktok_client_secret_set": bool(db.effective("tiktok_client_secret")),
+        "watermark": {**watermark_mod.settings(),
+                      "font_available": bool(watermark_mod.font_path()),
+                      "positions": list(watermark_mod.POSITIONS)},
     }
 
 
@@ -155,11 +159,12 @@ async def update_settings(request: Request, _: None = Depends(require_auth)):
         if val:
             db.set_setting(key, val)
     # These may be intentionally cleared (empty = none).
-    for key in ("vpn_rotation", "use_youtube_cookies"):
+    for key in ("vpn_rotation", "use_youtube_cookies", "watermark_enabled"):
         if key in body:
             db.set_setting(key, "1" if body.get(key) else "0")
     for key in ("default_dub_music", "public_base_url", "default_caption_style",
-                "default_dub_captions"):
+                "default_dub_captions", "watermark_text", "watermark_position",
+                "watermark_opacity", "watermark_size"):
         if key in body:
             db.set_setting(key, str(body.get(key, "")).strip())
     new_pw = str(body.get("new_password", "")).strip()

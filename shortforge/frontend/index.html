@@ -355,6 +355,38 @@
       </label>
 
       <hr />
+      <div class="meta-label">Watermark</div>
+      <p class="muted">Burned into every video the factory renders — clips and translated
+      shorts alike. Because it is part of the pixels, it survives re-uploads and
+      re-encodes.</p>
+      <label class="switch-row">
+        <input type="checkbox" id="set-watermark-enabled" /> Add a watermark
+      </label>
+      <label>Text
+        <input type="text" id="set-watermark-text" placeholder="@yourhandle" />
+        <small id="watermark-status" class="muted"></small>
+      </label>
+      <label>Position
+        <select id="set-watermark-position"></select>
+      </label>
+      <label>Size (% of height)
+        <select id="set-watermark-size">
+          <option value="2">Small (2%)</option>
+          <option value="3" selected>Medium (3%)</option>
+          <option value="4.5">Large (4.5%)</option>
+          <option value="6">Extra large (6%)</option>
+        </select>
+      </label>
+      <label>Opacity
+        <select id="set-watermark-opacity">
+          <option value="0.2">Discreet (20%)</option>
+          <option value="0.35" selected>Normal (35%)</option>
+          <option value="0.6">Strong (60%)</option>
+          <option value="0.9">Solid (90%)</option>
+        </select>
+      </label>
+
+      <hr />
       <div class="meta-label">YouTube / Google accounts</div>
       <label>Google client ID
         <input type="text" id="set-gclient" placeholder="xxxx.apps.googleusercontent.com" />

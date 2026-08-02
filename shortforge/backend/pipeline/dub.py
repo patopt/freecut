@@ -13,7 +13,8 @@ import subprocess
 from pathlib import Path
 
 from .. import config, db
-from . import audio_mix, captions, download, transcribe, translate, tts
+from . import (audio_mix, captions, download, reframe, transcribe, translate,
+               tts, watermark)
 
 # Cap per-process threads: several renders run in parallel now, and letting
 # each ffmpeg grab every core makes them all slower.
@@ -100,17 +101,22 @@ def run_dub(dub_id: str) -> None:
         thumb_file = out_dir / f"{dub_id}.jpg"
         _mux(src["path"], audio_path, out_file)
 
-        # Optional burned-in captions in the translated language.
+        # Captions and watermark share one encode pass — doing them separately
+        # would re-encode the whole video twice for no benefit.
         style = dub.get("caption_style") or ""
+        ass = None
         if style and style != "none":
             try:
                 ass = captions.build_ass_from_segments(
                     tr.segments, translations, 0.0, work / "captions.ass", preset=style)
-                if ass:
-                    _burn_captions(out_file, ass)
-                    db.append_dub_log(dub_id, f"Captions burned in ({style})")
             except Exception as exc:  # noqa: BLE001
                 db.append_dub_log(dub_id, f"Captions skipped: {exc}")
+        try:
+            burned = _burn_overlays(out_file, ass)
+            if burned:
+                db.append_dub_log(dub_id, f"Burned in: {', '.join(burned)}")
+        except Exception as exc:  # noqa: BLE001
+            db.append_dub_log(dub_id, f"Overlay pass skipped: {exc}")
 
         # Optional background music under the voiceover.
         music_id = dub.get("music_id")
@@ -147,14 +153,33 @@ def run_dub(dub_id: str) -> None:
                         str(exc)[:400], "error", "dub", dub_id)
 
 
-def _burn_captions(video_path: Path, ass_path: Path) -> None:
-    """Burn an ASS subtitle file into the video, replacing it in place."""
-    esc = str(ass_path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
-    tmp = video_path.with_name(video_path.stem + ".cap.mp4")
+def _burn_overlays(video_path: Path, ass_path: Path | None) -> list[str]:
+    """Burn captions and/or the watermark in one pass, replacing the file.
+
+    Returns the labels of what was applied, empty when there was nothing to do
+    (in which case the video is left untouched — no needless re-encode).
+    """
+    parts: list[str] = []
+    applied: list[str] = []
+    if ass_path is not None:
+        esc = str(ass_path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+        parts.append(f"subtitles={esc}")
+        applied.append("captions")
+
+    _, height = reframe.probe_dimensions(str(video_path))
+    mark = watermark.build_filter(height or 1920)
+    if mark:
+        parts.append(mark)   # after the subtitles, so it stays on top
+        applied.append("watermark")
+
+    if not parts:
+        return []
+
+    tmp = video_path.with_name(video_path.stem + ".ovl.mp4")
     cmd = [
         "ffmpeg", "-y", "-nostats", "-loglevel", "error",
         "-i", str(video_path),
-        "-vf", f"subtitles={esc}",
+        "-vf", ",".join(parts),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", FFMPEG_THREADS, "-pix_fmt", "yuv420p",
         "-c:a", "copy", "-movflags", "+faststart", str(tmp),
     ]
@@ -163,6 +188,7 @@ def _burn_captions(video_path: Path, ass_path: Path) -> None:
         tmp.unlink(missing_ok=True)
         raise RuntimeError((proc.stderr or "").strip()[-400:])
     shutil.move(str(tmp), str(video_path))
+    return applied
 
 
 def _mux(video_path: str, audio_path: Path, out_path: Path) -> None:
