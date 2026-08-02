@@ -4,29 +4,51 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>ShortForge</title>
+  <meta name="theme-color" content="#08090c" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)" />
+  <meta name="color-scheme" content="dark light" />
   <link rel="stylesheet" href="/static/styles.css" />
+  <script>
+    // Before first paint: a stored theme applied from app.js would flash the
+    // other one for a frame.
+    try {
+      var t = localStorage.getItem('sf-theme');
+      if (t && t !== 'auto') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  </script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">⚡ ShortForge</div>
-    <div class="top-actions">
-      <button id="btn-stop" class="btn small danger" title="Stop all queues">⏹ Stop all</button>
-      <button id="btn-settings" class="icon-btn" title="Settings">⚙️</button>
-      <button id="btn-logout" class="icon-btn" title="Log out">⎋</button>
-    </div>
-  </header>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">⚡</span> ShortForge</div>
+      <div class="top-actions">
+        <button id="btn-palette" class="icon-btn" title="Command palette (Ctrl/Cmd + K)">⌘</button>
+        <button id="btn-theme" class="icon-btn" title="Theme">◐</button>
+        <button id="btn-stop" class="btn small danger" title="Stop all queues">⏹ Stop</button>
+        <button id="btn-settings" class="icon-btn" title="Settings">⚙️</button>
+        <button id="btn-logout" class="icon-btn" title="Log out">⎋</button>
+      </div>
+    </header>
 
-  <nav class="tabs">
-    <button class="tab active" data-mode="clip">✂️ Clip</button>
-    <button class="tab" data-mode="copy">🎙️ Copy</button>
-    <button class="tab" data-mode="cloud">☁️ Cloud</button>
-    <button class="tab" data-mode="logs">📋 Tool Logs</button>
-  </nav>
+    <nav class="nav" aria-label="Sections">
+      <div class="nav-list" role="tablist">
+        <button class="tab active" data-mode="clip" role="tab" aria-selected="true">
+          <span class="tab-ico" aria-hidden="true">✂️</span><span class="tab-label">Clip</span></button>
+        <button class="tab" data-mode="copy" role="tab" aria-selected="false">
+          <span class="tab-ico" aria-hidden="true">🎙️</span><span class="tab-label">Copy</span></button>
+        <button class="tab" data-mode="cloud" role="tab" aria-selected="false">
+          <span class="tab-ico" aria-hidden="true">☁️</span><span class="tab-label">Cloud</span></button>
+        <button class="tab" data-mode="logs" role="tab" aria-selected="false">
+          <span class="tab-ico" aria-hidden="true">📋</span><span class="tab-label">Logs</span></button>
+      </div>
+      <div class="nav-foot muted" id="nav-foot"></div>
+    </nav>
 
-  <main class="container">
+    <main class="main"><div class="container">
     <!-- ============ CLIP SCREEN ============ -->
     <section id="screen-clip">
       <section id="view-list">
+        <div id="stats" class="stats" aria-label="Overview"></div>
         <div class="card new-job">
           <h2>New shorts</h2>
           <input type="text" id="job-url" placeholder="Paste a YouTube URL…" />
@@ -305,7 +327,8 @@
       </div>
       <div id="logs" class="jobs"></div>
     </section>
-  </main>
+    </div></main>
+  </div>
 
   <!-- SETTINGS MODAL -->
   <div id="settings-modal" class="modal hidden">
@@ -588,6 +611,16 @@
       <button id="btn-close-player" class="icon-btn player-close">✕</button>
       <video id="player-video" controls playsinline></video>
       <a id="player-download" class="btn primary block" download>Download</a>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+
+  <div id="palette" class="palette hidden" role="dialog" aria-modal="true" aria-label="Commands">
+    <div class="palette-card">
+      <input type="text" id="palette-input" class="palette-input"
+             placeholder="Jump to a section, run an action…" autocomplete="off" />
+      <div id="palette-list" class="palette-list"></div>
     </div>
   </div>
 

@@ -120,6 +120,11 @@ def api_me(_: None = Depends(require_auth)):
     return {"ok": True}
 
 
+@app.get("/api/stats")
+def stats(_: None = Depends(require_auth)):
+    return db.dashboard_stats()
+
+
 # --- settings ---------------------------------------------------------------
 
 @app.get("/api/settings")

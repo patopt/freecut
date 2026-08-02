@@ -4,34 +4,53 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>ShortForge — Sign in</title>
+  <meta name="theme-color" content="#08090c" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)" />
   <link rel="stylesheet" href="/static/styles.css" />
+  <script>
+    try {
+      var t = localStorage.getItem('sf-theme');
+      if (t && t !== 'auto') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  </script>
 </head>
-<body class="login-body">
-  <main class="login-card">
-    <div class="logo">⚡ ShortForge</div>
-    <p class="muted">Sign in to your dashboard</p>
-    <form id="login-form">
-      <input type="password" id="password" placeholder="Password" autocomplete="current-password" required />
-      <button type="submit" class="btn primary block">Sign in</button>
-      <div id="login-error" class="error"></div>
-    </form>
-  </main>
+<body>
+  <div class="login-wrap">
+    <main class="login-card">
+      <div class="brand"><span class="brand-mark">⚡</span> ShortForge</div>
+      <p class="muted">Sign in to your video factory</p>
+      <form id="login-form">
+        <input type="password" id="password" placeholder="Password"
+               autocomplete="current-password" required autofocus />
+        <button type="submit" id="submit" class="btn primary block" style="margin-top:14px">
+          Sign in
+        </button>
+        <div id="login-error" class="error" style="margin-top:10px"></div>
+      </form>
+    </main>
+  </div>
   <script>
     const form = document.getElementById('login-form');
+    const btn = document.getElementById('submit');
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const err = document.getElementById('login-error');
       err.textContent = '';
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: document.getElementById('password').value }),
-      });
-      if (res.ok) {
-        window.location.href = '/';
-      } else {
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: document.getElementById('password').value }),
+        });
+        if (res.ok) { window.location.href = '/'; return; }
         err.textContent = 'Wrong password.';
+      } catch (_) {
+        err.textContent = 'Could not reach the server.';
       }
+      btn.disabled = false;
+      btn.textContent = 'Sign in';
     });
   </script>
 </body>

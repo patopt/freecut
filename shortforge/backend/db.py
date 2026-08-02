@@ -1086,3 +1086,33 @@ def get_dub_for(short_id: str, lang: str, dest_channel_id: str) -> Optional[dict
             "SELECT * FROM dubs WHERE short_id=? AND lang=? AND dest_channel_id=? LIMIT 1",
             (short_id, lang, dest_channel_id)).fetchone()
     return dict(row) if row else None
+
+
+def dashboard_stats() -> dict:
+    """Counters for the overview header — one round trip, no Python loops."""
+    with _lock:
+        c = _connect()
+
+        def scalar(sql: str, args: tuple = ()) -> int:
+            row = c.execute(sql, args).fetchone()
+            return int(row[0] or 0) if row else 0
+
+        return {
+            "jobs": scalar("SELECT COUNT(*) FROM jobs"),
+            "jobs_running": scalar(
+                "SELECT COUNT(*) FROM jobs WHERE status NOT IN ('done','error')"),
+            "jobs_failed": scalar("SELECT COUNT(*) FROM jobs WHERE status='error'"),
+            "shorts": scalar("SELECT COUNT(*) FROM shorts"),
+            "sources": scalar("SELECT COUNT(*) FROM channels"),
+            "source_shorts": scalar("SELECT COUNT(*) FROM channel_shorts"),
+            "dubs": scalar("SELECT COUNT(*) FROM dubs WHERE status='done'"),
+            "dubs_running": scalar(
+                "SELECT COUNT(*) FROM dubs WHERE status NOT IN ('done','error')"),
+            "published": scalar("SELECT COUNT(*) FROM publish_queue WHERE status='published'"),
+            "publish_pending": scalar(
+                "SELECT COUNT(*) FROM publish_queue WHERE status IN ('pending','publishing')"),
+            "my_channels": scalar("SELECT COUNT(*) FROM my_channels"),
+            "accounts": scalar("SELECT COUNT(*) FROM youtube_channels")
+                        + scalar("SELECT COUNT(*) FROM tiktok_accounts"),
+            "paused": is_paused(),
+        }

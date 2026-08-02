@@ -1,0 +1,132 @@
+name: ShortForge iOS (unsigned IPA)
+
+# Builds the SwiftUI client and publishes an unsigned .ipa as a workflow
+# artifact. Unsigned means it will not launch on a stock device — install it
+# with a sideloading tool (AltStore, Sideloadly, TrollStore) or re-sign it with
+# your own certificate.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'shortforge/ios/**'
+      - '.github/workflows/shortforge-ios.yml'
+  pull_request:
+    paths:
+      - 'shortforge/ios/**'
+      - '.github/workflows/shortforge-ios.yml'
+  # Lets you produce a build without touching the app sources.
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: shortforge/ios
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          # Pin to the newest installed Xcode rather than whatever is default,
+          # so the SDK does not silently move between runs.
+          ls /Applications | grep -i '^Xcode' || true
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        run: xcodegen generate --spec project.yml
+
+      # A failure here is a real compile error, reported before the slower
+      # archive step buries it in build noise.
+      - name: Build for simulator (compile check)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ShortForge.xcodeproj \
+            -scheme ShortForge \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Archive (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ShortForge.xcodeproj \
+            -scheme ShortForge \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/ShortForge.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ENABLE_BITCODE=NO \
+            archive
+
+      - name: Package the IPA
+        run: |
+          set -euo pipefail
+          APP_DIR="build/ShortForge.xcarchive/Products/Applications"
+          test -d "$APP_DIR" || { echo "::error::No .app in the archive"; exit 1; }
+
+          # An .ipa is a zip whose single top-level directory is named Payload.
+          rm -rf build/Payload && mkdir -p build/Payload
+          cp -R "$APP_DIR/"*.app build/Payload/
+
+          # Strip the simulator/unsigned leftovers that make some sideloaders
+          # reject the bundle.
+          rm -rf build/Payload/*.app/_CodeSignature
+
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+            build/Payload/*.app/Info.plist 2>/dev/null || echo 0.0.0)"
+          NAME="ShortForge-${VERSION}-${GITHUB_SHA::7}-unsigned.ipa"
+          ( cd build && zip -qry "$NAME" Payload )
+          echo "IPA_NAME=$NAME" >> "$GITHUB_ENV"
+          ls -lh "build/$NAME"
+
+      - name: Verify the package
+        run: |
+          set -euo pipefail
+          cd build
+          # A structurally wrong .ipa fails silently at install time, so check
+          # the two things every installer actually looks for.
+          unzip -l "$IPA_NAME" | grep -q 'Payload/ShortForge.app/ShortForge' \
+            || { echo "::error::Executable missing from Payload"; exit 1; }
+          unzip -l "$IPA_NAME" | grep -q 'Payload/ShortForge.app/Info.plist' \
+            || { echo "::error::Info.plist missing from Payload"; exit 1; }
+          echo "IPA structure OK"
+
+      - name: Upload the IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: shortforge-ios-unsigned-ipa
+          path: shortforge/ios/build/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload the archive (for re-signing)
+        uses: actions/upload-artifact@v4
+        with:
+          name: shortforge-ios-xcarchive
+          path: shortforge/ios/build/ShortForge.xcarchive
+          if-no-files-found: warn
+          retention-days: 7

@@ -41,10 +41,147 @@ function escapeHtml(str) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// ===================== THEME ===============================================
+
+// Three states: follow the OS, force light, force dark. Persisted, and applied
+// before first paint by an inline script in index.html.
+const THEMES = ['auto', 'light', 'dark'];
+
+function applyTheme(mode) {
+  const root = document.documentElement;
+  if (mode === 'auto') root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', mode);
+  localStorage.setItem('sf-theme', mode);
+  const btn = $('btn-theme');
+  if (btn) {
+    btn.textContent = mode === 'light' ? '☀' : mode === 'dark' ? '☾' : '◐';
+    btn.title = `Theme: ${mode}`;
+  }
+}
+
+function cycleTheme() {
+  const cur = localStorage.getItem('sf-theme') || 'auto';
+  applyTheme(THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length]);
+}
+
+// ===================== TOASTS =============================================
+
+// Replaces toast(): non-blocking, stacks, and never steals focus mid-task.
+function toast(message, kind = 'info', ms = 4200) {
+  const host = $('toasts');
+  if (!host) { return; }
+  const el = document.createElement('div');
+  el.className = `toast ${kind === 'error' ? 'err' : kind === 'ok' ? 'ok' : ''}`;
+  const ico = kind === 'error' ? '⚠️' : kind === 'ok' ? '✓' : 'ℹ️';
+  el.innerHTML = `<span class="toast-ico">${ico}</span><span>${escapeHtml(message)}</span>`;
+  host.appendChild(el);
+  setTimeout(() => {
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 220);
+  }, ms);
+}
+
+// ===================== OVERVIEW STATS =====================================
+
+const STAT_TILES = [
+  { key: 'shorts', label: 'Shorts', sub: (s) => `${s.jobs} source videos` },
+  { key: 'dubs', label: 'Translated', sub: (s) => `${s.sources} source channels` },
+  { key: 'published', label: 'Published', sub: (s) => `${s.accounts} accounts`, tone: 'success' },
+  { key: 'jobs_running', label: 'In progress',
+    sub: (s) => `${s.dubs_running} dubs · ${s.publish_pending} to post`, tone: 'warning' },
+  { key: 'jobs_failed', label: 'Failed', sub: () => 'tap Clear failed', tone: 'danger' },
+];
+
+async function loadStats() {
+  const host = $('stats');
+  if (!host) return;
+  try {
+    const s = await api('/api/stats');
+    host.innerHTML = STAT_TILES
+      // A "Failed" tile reading zero is noise — only show it when it matters.
+      .filter((t) => t.key !== 'jobs_failed' || s.jobs_failed > 0)
+      .map((t) => `<div class="stat-tile"${t.tone ? ` data-tone="${t.tone}"` : ''}>
+        <span class="stat-num">${s[t.key] ?? 0}</span>
+        <span class="stat-lab">${t.label}</span>
+        <span class="stat-sub">${escapeHtml(t.sub(s))}</span>
+      </div>`).join('');
+    const foot = $('nav-foot');
+    if (foot) foot.textContent = s.paused ? '⏸ Queues paused' : '';
+  } catch (_) { host.innerHTML = ''; }
+}
+
+// ===================== COMMAND PALETTE ====================================
+
+let paletteItems = [];
+let paletteIndex = 0;
+
+function paletteCommands() {
+  return [
+    { label: 'Go to Clip', hint: 'section', run: () => switchMode('clip') },
+    { label: 'Go to Copy', hint: 'section', run: () => switchMode('copy') },
+    { label: 'Go to Cloud desktop', hint: 'section', run: () => switchMode('cloud') },
+    { label: 'Go to Tool Logs', hint: 'section', run: () => switchMode('logs') },
+    { label: 'Open settings', hint: 'action', run: () => openSettings() },
+    { label: 'New shorts from a URL', hint: 'action',
+      run: () => { switchMode('clip'); $('job-url').focus(); } },
+    { label: 'Add a source channel', hint: 'action',
+      run: () => { switchMode('copy'); switchSub('sources'); $('channel-url').focus(); } },
+    { label: 'Start a cloud desktop', hint: 'action',
+      run: () => { switchMode('cloud'); cloudStart(); } },
+    { label: 'Clear failed videos', hint: 'action', run: () => clearFailed() },
+    { label: 'Switch theme', hint: 'action', run: () => cycleTheme() },
+    { label: 'Pause / resume all queues', hint: 'danger', run: () => toggleStop() },
+    { label: 'Log out', hint: 'action',
+      run: async () => { await fetch('/api/logout', { method: 'POST' });
+                         window.location.href = '/login'; } },
+  ];
+}
+
+function renderPalette(query) {
+  const q = (query || '').toLowerCase().trim();
+  paletteItems = paletteCommands()
+    .filter((c) => !q || c.label.toLowerCase().includes(q));
+  paletteIndex = 0;
+  $('palette-list').innerHTML = paletteItems.length
+    ? paletteItems.map((c, i) => `<button class="palette-item${i === 0 ? ' on' : ''}" data-i="${i}">
+         <span>${escapeHtml(c.label)}</span><span class="palette-hint">${c.hint}</span></button>`).join('')
+    : '<div class="empty muted">No matching command</div>';
+  $('palette-list').querySelectorAll('.palette-item').forEach((b) => {
+    b.addEventListener('click', () => runPalette(Number(b.dataset.i)));
+  });
+}
+
+function movePalette(delta) {
+  if (!paletteItems.length) return;
+  paletteIndex = (paletteIndex + delta + paletteItems.length) % paletteItems.length;
+  $('palette-list').querySelectorAll('.palette-item').forEach((b, i) => {
+    b.classList.toggle('on', i === paletteIndex);
+    if (i === paletteIndex) b.scrollIntoView({ block: 'nearest' });
+  });
+}
+
+function runPalette(i) {
+  const cmd = paletteItems[i];
+  closePalette();
+  if (cmd) { try { cmd.run(); } catch (e) { toast(e.message, 'error'); } }
+}
+
+function openPalette() {
+  $('palette').classList.remove('hidden');
+  $('palette-input').value = '';
+  renderPalette('');
+  $('palette-input').focus();
+}
+function closePalette() { $('palette').classList.add('hidden'); }
+
 // ===================== MODE + SUB TABS =====================================
 
 function switchMode(mode) {
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.mode === mode));
+  document.querySelectorAll('.tab').forEach((t) => {
+    const on = t.dataset.mode === mode;
+    t.classList.toggle('active', on);
+    t.setAttribute('aria-selected', String(on));
+  });
   $('screen-clip').classList.toggle('hidden', mode !== 'clip');
   $('screen-copy').classList.toggle('hidden', mode !== 'copy');
   $('screen-logs').classList.toggle('hidden', mode !== 'logs');
@@ -203,7 +340,7 @@ async function cloudBrowser() {
   try {
     await api(`/api/cloud/sessions/${cloudActive}/browser`,
       { method: 'POST', body: JSON.stringify({ url }) });
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 function cloudFullscreen() {
@@ -355,10 +492,10 @@ function viralityBars(s) {
 async function publishNow(targetId, reload) {
   try {
     const r = await api(`/api/channels-out/${targetId}/publish-now`, { method: 'POST' });
-    alert(r.queued
+    toast(r.queued
       ? `${r.queued} video(s) queued for immediate publishing.`
       : 'Nothing ready to publish right now (still translating, or already posted).');
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
   if (reload) reload();
 }
 
@@ -567,7 +704,7 @@ function renderYtItems(items) {
         e.stopPropagation();
         retry.disabled = true; retry.textContent = '…';
         try { await api(`/api/publishes/${it.publish_id}/retry`, { method: 'POST' }); }
-        catch (err) { alert(err.message); }
+        catch (err) { toast(err.message, 'error'); }
         reloadYtChannel();
       });
     }
@@ -702,7 +839,7 @@ async function confirmLang() {
   const body = { lang: $('lang-select').value, dest_channel_id: $('dest-select').value,
     music_id: $('dub-music').value, caption_style: $('dub-captions').value || 'none' };
   try { await api(`/api/shorts-src/${pendingDubShortId}/dub`, { method: 'POST', body: JSON.stringify(body) }); }
-  catch (e) { alert(e.message); }
+  catch (e) { toast(e.message, 'error'); }
   $('lang-modal').classList.add('hidden'); pendingDubShortId = null;
   if (currentChannelId) { stopChannelPoll(); channelPollTimer = setInterval(reloadChannel, 3000); reloadChannel(); }
 }
@@ -993,7 +1130,7 @@ async function connectTikTokApi() {
   try {
     const { url } = await api(`/api/tiktok/auth-url?mode=${encodeURIComponent(mode)}`);
     window.location.href = url;
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 // --- remote browser session -------------------------------------------------
@@ -1199,7 +1336,7 @@ function renderTtItems(items) {
         e.stopPropagation();
         retry.disabled = true; retry.textContent = '…';
         try { await api(`/api/publishes/${it.publish_id}/retry`, { method: 'POST' }); }
-        catch (err) { alert(err.message); }
+        catch (err) { toast(err.message, 'error'); }
         reloadTtAccount();
       });
     }
@@ -1362,7 +1499,7 @@ async function connectGoogle() {
   try {
     const { url } = await api('/api/youtube/auth-url');
     window.location.href = url;
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 async function saveSettings() {
   const body = { gemini_api_key: $('set-gemini-key').value, gemini_model: $('set-gemini-model').value,
@@ -1496,11 +1633,11 @@ async function toggleStop() {
     try {
       const r = await api('/api/system/stop-all', { method: 'POST' });
       systemPaused = true; renderStopButton();
-      alert(`Stopped. Canceled: ${r.canceled_jobs} clips, ${r.canceled_dubs} dubs, ${r.canceled_publishes} uploads. Auto disabled on ${r.auto_disabled} channel(s).`);
+      toast(`Stopped. Canceled: ${r.canceled_jobs} clips, ${r.canceled_dubs} dubs, ${r.canceled_publishes} uploads. Auto disabled on ${r.auto_disabled} channel(s).`);
       loadJobs();
-    } catch (e) { alert(e.message); }
+    } catch (e) { toast(e.message, 'error'); }
   } else {
-    try { await api('/api/system/resume', { method: 'POST' }); systemPaused = false; renderStopButton(); } catch (e) { alert(e.message); }
+    try { await api('/api/system/resume', { method: 'POST' }); systemPaused = false; renderStopButton(); } catch (e) { toast(e.message, 'error'); }
   }
 }
 
@@ -1509,9 +1646,9 @@ async function clearQueues() {
   try {
     const r = await api('/api/system/clear-queues', { method: 'POST' });
     systemPaused = true; renderStopButton();
-    alert(`Cleared. Deleted: ${r.deleted_jobs} clips, ${r.deleted_dubs} dubs, ${r.deleted_publishes} uploads. System paused — press Resume when ready.`);
+    toast(`Cleared. Deleted: ${r.deleted_jobs} clips, ${r.deleted_dubs} dubs, ${r.deleted_publishes} uploads. System paused — press Resume when ready.`);
     loadJobs();
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 // ===================== wire up =============================================
@@ -1616,16 +1753,35 @@ $('btn-logout').addEventListener('click', async () => { await fetch('/api/logout
 // Handle the OAuth return.
 (function handleYtReturn() {
   const p = new URLSearchParams(window.location.search);
-  if (p.get('yt') === 'connected') { alert('Google account connected ✓'); history.replaceState({}, '', '/'); }
-  else if (p.get('yt') === 'error') { alert('Google connection failed. Check your client ID/secret and the redirect URI in Google Cloud.'); history.replaceState({}, '', '/'); }
-  else if (p.get('tt') === 'connected') { alert('TikTok account connected ✓'); history.replaceState({}, '', '/'); }
-  else if (p.get('tt') === 'error') { alert('TikTok connection failed. Check your client key/secret and the redirect URI in the TikTok developer portal.'); history.replaceState({}, '', '/'); }
+  if (p.get('yt') === 'connected') { toast('Google account connected ✓', 'ok'); history.replaceState({}, '', '/'); }
+  else if (p.get('yt') === 'error') { toast('Google connection failed. Check your client ID/secret and the redirect URI in Google Cloud.'); history.replaceState({}, '', '/'); }
+  else if (p.get('tt') === 'connected') { toast('TikTok account connected ✓', 'ok'); history.replaceState({}, '', '/'); }
+  else if (p.get('tt') === 'error') { toast('TikTok connection failed. Check your client key/secret and the redirect URI in the TikTok developer portal.'); history.replaceState({}, '', '/'); }
 })();
 
+$('btn-theme').addEventListener('click', cycleTheme);
+$('btn-palette').addEventListener('click', openPalette);
+$('palette').addEventListener('click', (e) => { if (e.target.id === 'palette') closePalette(); });
+$('palette-input').addEventListener('input', (e) => renderPalette(e.target.value));
+$('palette-input').addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); movePalette(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); movePalette(-1); }
+  else if (e.key === 'Enter') { e.preventDefault(); runPalette(paletteIndex); }
+  else if (e.key === 'Escape') closePalette();
+});
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
+  else if (e.key === 'Escape' && !$('palette').classList.contains('hidden')) closePalette();
+});
+
+applyTheme(localStorage.getItem('sf-theme') || 'auto');
 loadJobs();
+loadStats();
 loadMusicOptions();
 loadCaptionStyles();
 loadSystemStatus();
 setInterval(() => {
-  if (!$('screen-clip').classList.contains('hidden') && !$('view-list').classList.contains('hidden')) loadJobs();
+  if (!$('screen-clip').classList.contains('hidden') && !$('view-list').classList.contains('hidden')) {
+    loadJobs(); loadStats();
+  }
 }, 5000);
